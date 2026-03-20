@@ -2,6 +2,7 @@ from portfolio import show_portfolio
 from orders import place_order
 from monitor import start_monitoring
 from weekly_report import weekly_report
+from export import export_all
 from config import trading_client, stock_data, DRY_RUN
 from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
@@ -22,6 +23,7 @@ print(f"""
 ║  5 → Start Monitor (alarm system)   ║
 ║  6 → Weekly Report                  ║
 ║  7 → Check My Orders                ║
+║  8 → Export CSVs                    ║
 ║  q → Quit                           ║
 ╚══════════════════════════════════════╝
 """)
@@ -207,6 +209,9 @@ while True:
                 print()
         except Exception as e:
             print(f"  ❌ Failed to fetch orders: {e}")
+
+    elif choice == "8":
+        export_all()
 
     elif choice == "q":
         print("  👋 Goodbye!")
