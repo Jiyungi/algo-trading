@@ -1,0 +1,46 @@
+name: Auto Strategy
+
+on:
+  schedule:
+    # 9:35 AM ET (14:35 UTC) every weekday — just after market open.
+    # Runs at 9:35 AM EST (winter) and 10:35 AM EDT (summer, Mar-Nov).
+    - cron: '35 14 * * 1-5'
+  workflow_dispatch: {}   # allow manual trigger from GitHub UI
+
+permissions:
+  contents: write   # needed to commit trade_log.csv and cooldowns.json back
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    env:
+      ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
+      ALPACA_SECRET: ${{ secrets.ALPACA_SECRET }}
+      DRY_RUN: "1"   # change to "0" when ready for paper trading
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run strategy
+        run: python src/strategy.py
+
+      # Commit trade log and cooldowns back to the repo so the next run
+      # can read them. [skip ci] prevents this commit from re-triggering
+      # the workflow.
+      - name: Save trade log
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/trade_log.csv data/cooldowns.json data/positions_state.json 2>/dev/null || true
+          git diff --staged --quiet || \
+            git commit -m "chore: update trade log [skip ci]"
+          git push
