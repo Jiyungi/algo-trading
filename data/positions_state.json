@@ -1,0 +1,18 @@
+{
+  "BND": {
+    "peak_price": 74.862,
+    "tranches_taken": 0
+  },
+  "QQQ": {
+    "peak_price": 606.953333,
+    "tranches_taken": 0
+  },
+  "SPY": {
+    "peak_price": 689.104,
+    "tranches_taken": 0
+  },
+  "VNQ": {
+    "peak_price": 95.16,
+    "tranches_taken": 0
+  }
+}
