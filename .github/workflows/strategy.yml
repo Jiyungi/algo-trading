@@ -2,9 +2,10 @@ name: Auto Strategy
 
 on:
   schedule:
-    # 9:35 AM ET (14:35 UTC) every weekday — just after market open.
-    # Runs at 9:35 AM EST (winter) and 10:35 AM EDT (summer, Mar-Nov).
+    # 9:35 AM ET (14:35 UTC) — just after market open.
     - cron: '35 14 * * 1-5'
+    # 1:00 PM ET (18:00 UTC) — early afternoon check.
+    - cron: '0 18 * * 1-5'
   workflow_dispatch: {}   # allow manual trigger from GitHub UI
 
 permissions:

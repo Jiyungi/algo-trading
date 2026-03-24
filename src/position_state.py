@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 STATE_PATH = os.path.join(DATA_DIR, "positions_state.json")
 
-MAX_HOLD_DAYS = 10  # force exit after this many trading days (~2 weeks calendar)
+MAX_HOLD_DAYS = 7   # force exit after this many trading days
 
 
 def _load() -> dict:
@@ -66,8 +66,10 @@ def init_state(symbol: str, entry_price: float):
     logger.info("State init: %s | entry $%.2f", symbol, entry_price)
 
 
-def ensure_initialized(symbol: str, current_price: float,
-                        entry_price: float, pl_pct: float):
+def ensure_initialized(
+    symbol: str, current_price: float,
+    entry_price: float, pl_pct: float,
+):
     """Bootstrap state for positions that predate this strategy.
 
     Called at the start of the exit loop for every held position.

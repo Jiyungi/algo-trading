@@ -78,20 +78,45 @@ def get_win_rate(n: int = CIRCUIT_BREAKER_N) -> float | None:
     return wins / len(closed)
 
 
+def _get_payoff(n: int = CIRCUIT_BREAKER_N) -> tuple[float, float]:
+    """Return (avg_gain_pct, avg_loss_pct) from last N closed trades."""
+    closed = [
+        t for t in load_recent_trades(n * 3)
+        if t["side"] == "sell" and t["pnl_pct"]
+    ][-n:]
+    gains = [float(t["pnl_pct"]) for t in closed if float(t["pnl_pct"]) > 0]
+    losses = [abs(float(t["pnl_pct"])) for t in closed
+              if float(t["pnl_pct"]) < 0]
+    avg_gain = sum(gains) / len(gains) if gains else 0.0
+    avg_loss = sum(losses) / len(losses) if losses else 0.0
+    return avg_gain, avg_loss
+
+
 def circuit_breaker_ok() -> tuple[bool, str]:
     """Return (ok, reason).
-    Halts new buys when the recent win rate falls below the minimum threshold.
-    Does NOT block exits — stop-losses and take-profits still fire.
+
+    Halts new buys only when BOTH conditions hold:
+      1. Win rate < 40%  (losing more than 60% of trades)
+      2. Avg loss > avg gain  (losses outweigh wins in size too)
+
+    Requiring both prevents premature shutdown from small-sample noise
+    where a few losses happen to cluster but the payoff ratio is still fine.
+    Does NOT block exits — stop-losses and take-profits always fire.
     """
     win_rate = get_win_rate()
     if win_rate is None:
         return True, "not enough trade history yet"
-    if win_rate < CIRCUIT_BREAKER_MIN_WIN_RATE:
+
+    avg_gain, avg_loss = _get_payoff()
+    if win_rate < CIRCUIT_BREAKER_MIN_WIN_RATE and avg_loss > avg_gain:
         return False, (
-            f"win rate {win_rate:.0%} is below "
-            f"{CIRCUIT_BREAKER_MIN_WIN_RATE:.0%} — pausing new buys"
+            f"win rate {win_rate:.0%} < {CIRCUIT_BREAKER_MIN_WIN_RATE:.0%}"
+            f" AND avg loss {avg_loss:.1f}% > avg gain {avg_gain:.1f}%"
         )
-    return True, f"win rate {win_rate:.0%} OK"
+    return True, (
+        f"win rate {win_rate:.0%} | "
+        f"avg gain {avg_gain:.1f}% | avg loss {avg_loss:.1f}%"
+    )
 
 
 # ── Cooldowns ─────────────────────────────────────────────────────────────────

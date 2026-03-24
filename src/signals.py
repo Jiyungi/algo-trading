@@ -20,7 +20,7 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 
 
-# ── Regime detection ──────────────────────────────────────────────────────────
+# ── Regime detection ─────────────────────────────────────────────────────────
 
 def detect_regime(spy_bars: pd.DataFrame, window: int = 20) -> str:
     """Return REGIME_TREND or REGIME_MEAN_REV based on SPY vs its EMA.
@@ -36,7 +36,7 @@ def detect_regime(spy_bars: pd.DataFrame, window: int = 20) -> str:
     return REGIME_TREND if current > ema20 else REGIME_MEAN_REV
 
 
-# ── Individual signals ────────────────────────────────────────────────────────
+# ── Individual signals ───────────────────────────────────────────────────────
 
 def ma_signal(closes: pd.Series, fast: int = 5, slow: int = 20) -> int:
     """EMA 5/20 crossover.
@@ -65,7 +65,7 @@ def rsi_signal(closes: pd.Series, period: int = 7,
       RSI < 30 = oversold, expect bounce (+1)
       RSI > 70 = overbought, expect pullback (-1)
 
-    This removes the internal contradiction where RSI penalised strong uptrends.
+    Removes the contradiction where RSI penalised strong uptrends.
     """
     if len(closes) < period + 1:
         return 0
@@ -91,7 +91,7 @@ def rsi_signal(closes: pd.Series, period: int = 7,
 
 
 def macd_signal(closes: pd.Series) -> int:
-    """MACD line above signal line = bullish momentum (buy), below = bearish."""
+    """MACD line above signal line = bullish (buy), below = bearish (sell)."""
     if len(closes) < 35:
         return 0
     macd_line = _ema(closes, 12) - _ema(closes, 26)
@@ -143,6 +143,27 @@ def has_catalyst(df: pd.DataFrame, gap_threshold: float = 0.02) -> bool:
     return False
 
 
+# ── Momentum continuation ────────────────────────────────────────────────────
+
+def momentum_continuation(closes: pd.Series,
+                           fast_span: int = 5,
+                           gain_threshold: float = 0.02,
+                           lookback: int = 3) -> bool:
+    """Return True if price is above EMA(5) and gained ≥2% over last 3 days.
+
+    Secondary entry path for short-term continuation moves that may not yet
+    score ≥3 on the main signal stack but show clear price momentum.
+    """
+    if len(closes) < fast_span + lookback:
+        return False
+    ema5 = _ema(closes, fast_span).iloc[-1]
+    current = closes.iloc[-1]
+    past = closes.iloc[-1 - lookback]
+    if past <= 0:
+        return False
+    return current > ema5 and (current - past) / past >= gain_threshold
+
+
 # ── Composite score ───────────────────────────────────────────────────────────
 
 def compute_score(closes: pd.Series, volumes: pd.Series,
@@ -151,6 +172,7 @@ def compute_score(closes: pd.Series, volumes: pd.Series,
 
     Combines EMA 5/20 crossover + regime-aware RSI(7) + MACD + volume.
     Pass the regime detected from SPY so RSI behaves correctly.
+    Catalyst (+1 bonus) is applied in strategy.py before threshold check.
     """
     return (
         ma_signal(closes)

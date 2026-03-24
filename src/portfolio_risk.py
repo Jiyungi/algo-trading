@@ -1,25 +1,10 @@
 """Portfolio-level risk checks — applied after signal scoring, before buying.
 
-Three layers added on top of the existing per-symbol signal strategy:
-
-  1. Correlation filter     -- skip candidates that move with held positions
-  2. Concentration check    -- enforce asset class diversification limits
-  3. Volatility-adjusted    -- size positions to equalise risk contribution
-     position sizing
-  4. Metrics logging        -- Sharpe ratio + max drawdown each run
-
-Why each matters:
-  Correlation: buying MSFT when you hold AAPL doubles tech exposure without
-  adding real diversification. Assets that move together offer no risk
-  reduction regardless of how many you own.
-
-  Concentration: true diversification comes from mixing asset classes
-  (equities, bonds, commodities) not just adding more stocks. A portfolio
-  of 10 tech stocks is not diversified.
-
-  Volatility sizing: a flat 5% in TSLA (annual vol ~60%) vs BND (vol ~5%)
-  creates wildly different risk contributions per position. Scaling by vol
-  means each position adds roughly the same amount of risk to the portfolio.
+Layers:
+  1. Correlation filter  -- skip candidates that move with held positions
+  2. Concentration check -- enforce asset class diversification limits
+  3. Volatility sizing   -- size positions to equalise risk contribution
+  4. Metrics logging     -- Sharpe ratio + max drawdown each run
 """
 import logging
 import pandas as pd
@@ -27,7 +12,6 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ── Asset class map ───────────────────────────────────────────────────────────
-# Used for concentration limits. Unknown symbols default to "equity".
 ASSET_CLASS = {
     # Individual equities
     "AAPL": "equity", "MSFT": "equity", "NVDA": "equity", "GOOGL": "equity",
@@ -46,7 +30,7 @@ ASSET_CLASS = {
     "SLB": "equity", "EOG": "equity",
     "CAT": "equity", "DE": "equity", "HON": "equity", "GE": "equity",
     "RTX": "equity", "LMT": "equity", "BA": "equity",
-    # Broad market ETFs (behave like equity but are already diversified)
+    # Broad market ETFs
     "SPY": "etf_broad", "QQQ": "etf_broad",
     "IWM": "etf_broad", "DIA": "etf_broad",
     # Sector ETFs
@@ -61,8 +45,6 @@ ASSET_CLASS = {
     "EWY": "international", "VEU": "international", "EEM": "international",
 }
 
-# Maximum portfolio weight per asset class (market_value / portfolio_value).
-# These are soft limits — the strategy will skip buys that would breach them.
 MAX_CLASS_WEIGHT = {
     "equity":        0.60,
     "etf_broad":     0.30,
@@ -72,8 +54,8 @@ MAX_CLASS_WEIGHT = {
     "international": 0.30,
 }
 
-CORRELATION_THRESHOLD = 0.80   # skip candidate if |corr| > this with any held symbol
-TARGET_VOL = 0.20              # annualised vol benchmark for position sizing (~large-cap)
+CORRELATION_THRESHOLD = 0.87  # relaxed from 0.80 for short-term strategies
+TARGET_VOL = 0.20             # annualised vol benchmark (~large-cap equity)
 
 
 def _asset_class(symbol: str) -> str:
@@ -88,10 +70,10 @@ def correlation_filter(
     bars: dict,
     threshold: float = CORRELATION_THRESHOLD,
 ) -> list:
-    """Remove candidates whose returns correlate too strongly with held positions.
+    """Remove candidates correlated too strongly with held positions.
 
-    Returns filtered list preserving original order (score-sorted).
-    Candidates with no overlap in bar history pass through unchecked.
+    Returns filtered list preserving score-sorted order.
+    Candidates with no bar history overlap pass through unchecked.
     """
     if not held_symbols or not candidates:
         return candidates
@@ -141,12 +123,7 @@ def concentration_check(
     held_positions,
     portfolio_value: float,
 ) -> tuple[bool, str]:
-    """Return (ok, reason).
-
-    Blocks a buy if the candidate's asset class is already at its weight limit.
-    Rationale: prevents the portfolio from becoming 90% tech stocks even if
-    tech signals are all firing at once.
-    """
+    """Return (ok, reason). Blocks if asset class is at its weight limit."""
     if portfolio_value <= 0:
         return True, "OK"
 
@@ -173,20 +150,15 @@ def volatility_adjusted_qty(
     symbol: str,
     bars: dict,
     portfolio_value: float,
-    base_pct: float = 0.05,
+    base_pct: float = 0.035,
     score: int = 3,
 ) -> int:
     """Scale position size by volatility AND signal conviction.
 
-    Base allocation = 5% of portfolio.
+    Base allocation = 3.5% (reduced from 5% to support up to 4 positions).
     Volatility scalar: low-vol assets get more, high-vol get less.
     Conviction scalar: score=4 gets 30% more than score=3.
-
-    Examples at $100k portfolio, base = $5,000:
-      BND  vol~4%  score=4 → $10,000 (vol cap) × 1.3 → capped $10,000
-      SPY  vol~15% score=4 →  $8,667
-      SPY  vol~15% score=3 →  $6,667
-      TSLA vol~55% score=3 →  $1,818
+    Hard cap: 10% of portfolio per position.
     """
     if symbol not in bars:
         return 0
@@ -199,10 +171,10 @@ def volatility_adjusted_qty(
     annual_vol = daily_vol * (252 ** 0.5)
 
     vol_scalar = min(TARGET_VOL / annual_vol, 2.0) if annual_vol > 0 else 1.0
-    conviction_scalar = 1.0 + (score - 3) * 0.30   # score 3→1.0x, 4→1.3x
+    conviction_scalar = 1.0 + (score - 3) * 0.30  # 3→1.0x, 4→1.3x
     alloc = min(
         base_alloc * vol_scalar * conviction_scalar,
-        portfolio_value * 0.10,  # hard cap 10%
+        portfolio_value * 0.10,
     )
     return max(1, int(alloc / price))
 
@@ -210,8 +182,8 @@ def volatility_adjusted_qty(
 # ── 4. Portfolio metrics logging ──────────────────────────────────────────────
 
 def log_portfolio_metrics(trading_client) -> None:
-    """Compute and log Sharpe ratio and max drawdown from 3M portfolio history.
-    Costs one extra Alpaca API call (still free tier, well within limits).
+    """Log Sharpe ratio and max drawdown from 3M portfolio history.
+    One extra Alpaca API call — still within free tier limits.
     """
     try:
         from alpaca.trading.requests import GetPortfolioHistoryRequest
@@ -225,23 +197,25 @@ def log_portfolio_metrics(trading_client) -> None:
 
         s = pd.Series(equity, dtype=float)
         returns = s.pct_change().dropna()
-
         rf_daily = 0.05 / 252
         sharpe = (
             (returns.mean() - rf_daily) / returns.std() * (252 ** 0.5)
             if returns.std() > 0 else 0.0
         )
-        peak = s.cummax()
-        max_dd = ((s - peak) / peak).min() * 100
+        max_dd = ((s - s.cummax()) / s.cummax()).min() * 100
 
         logger.info(
-            "Portfolio metrics (3M) | Sharpe: %.2f | Max Drawdown: %.1f%%",
+            "Metrics (3M) | Sharpe: %.2f | Max Drawdown: %.1f%%",
             sharpe, max_dd,
         )
         if sharpe < 0:
-            logger.warning("Sharpe is negative — strategy is underperforming risk-free rate")
+            logger.warning(
+                "Sharpe negative — underperforming risk-free rate"
+            )
         if max_dd < -20:
-            logger.warning("Max drawdown exceeds 20%% — consider reviewing position sizing")
+            logger.warning(
+                "Max drawdown >20%% — consider reviewing position sizing"
+            )
 
     except Exception as e:
         logger.warning("Could not compute portfolio metrics: %s", e)

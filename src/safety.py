@@ -10,7 +10,7 @@ from config import trading_client, STOP_LOSS_PCT, DAILY_DROP_PCT
 logger = logging.getLogger(__name__)
 
 MAX_POSITION_PCT = 0.10   # no single position > 10% of portfolio value
-MAX_NEW_POSITIONS = 2     # max new buys per strategy run
+MAX_NEW_POSITIONS = 4     # max new buys per strategy run
 MIN_CASH_PCT = 0.05       # halt if cash < 5% of portfolio
 
 

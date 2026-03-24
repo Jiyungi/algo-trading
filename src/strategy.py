@@ -43,7 +43,7 @@ from signals import (  # noqa: E402
     compute_score,
     detect_regime,
     has_catalyst,
-    REGIME_TREND,
+    momentum_continuation,
 )
 from scanner import fetch_bars_yf, UNIVERSE  # noqa: E402
 from trade_log import (  # noqa: E402
@@ -82,7 +82,7 @@ SELL_THRESHOLD = -3  # signal exit threshold
 
 # Exit parameters
 TRAIL_PCT = 0.07      # trailing stop: 7% drop from peak sells everything
-TAKE_PROFIT = 18.0    # single tranche: sell 50% at +18% (removed early +7% exit)
+TAKE_PROFIT = 18.0    # single tranche: sell 50% at +18%
 
 
 def run():
@@ -239,16 +239,22 @@ def run():
         score = compute_score(df["close"], df["volume"], regime=regime)
         price = float(df["close"].iloc[-1])
 
-        if score < BUY_THRESHOLD:
-            continue
-
-        # Catalyst filter: require gap >2% or volume spike
+        # Catalyst is a +1 score bonus (gap >2% or volume spike)
         catalyst = has_catalyst(df)
-        logger.info(
-            "SCAN        | %s | score=%+d | $%.2f | catalyst=%s",
-            sym, score, price, catalyst,
-        )
-        if catalyst:
+        effective_score = score + (1 if catalyst else 0)
+
+        if effective_score >= BUY_THRESHOLD:
+            logger.info(
+                "SCAN        | %s | score=%+d | $%.2f | catalyst=%s",
+                sym, effective_score, price, catalyst,
+            )
+            candidates.append((sym, effective_score, price))
+        elif score >= 2 and momentum_continuation(df["close"]):
+            # Secondary entry: price > EMA5 and +2% over 3 days
+            logger.info(
+                "MOMENTUM    | %s | score=%+d | $%.2f | continuation",
+                sym, score, price,
+            )
             candidates.append((sym, score, price))
 
     candidates.sort(key=lambda x: x[1], reverse=True)
