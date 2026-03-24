@@ -1,2 +1,3 @@
 date,symbol,side,qty,price,reason,pnl_pct
 2026-03-24 14:59,AAPL,sell,19.0,252.20,trailing_stop,-7.67
+2026-03-24 15:10,AAPL,sell,19.0,253.30,trailing_stop,-7.26
