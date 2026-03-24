@@ -2,17 +2,46 @@
 
 Each function returns:  +1 (buy), -1 (sell), 0 (hold)
 compute_score() combines all four into a confluence score (-4 to +4).
+
+Regime-aware design:
+  trend regime      -- SPY above 20-day EMA
+    EMA 5/20 crossover, RSI >60 = bullish confirmation, MACD, volume
+  mean_reversion    -- SPY below 20-day EMA
+    EMA 5/20 crossover, RSI <30 = oversold buy, MACD, volume
 """
 import numpy as np
 import pandas as pd
+
+REGIME_TREND = "trend"
+REGIME_MEAN_REV = "mean_reversion"
 
 
 def _ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 
 
-def ma_signal(closes: pd.Series, fast: int = 10, slow: int = 50) -> int:
-    """EMA crossover: fast above slow = uptrend (buy), below = downtrend (sell)."""
+# ── Regime detection ──────────────────────────────────────────────────────────
+
+def detect_regime(spy_bars: pd.DataFrame, window: int = 20) -> str:
+    """Return REGIME_TREND or REGIME_MEAN_REV based on SPY vs its EMA.
+
+    Above 20-day EMA → market is in an uptrend → use momentum logic.
+    Below 20-day EMA → market is choppy/falling → use mean-reversion logic.
+    Defaults to trend if not enough data.
+    """
+    if spy_bars is None or len(spy_bars) < window:
+        return REGIME_TREND
+    ema20 = _ema(spy_bars["close"], window).iloc[-1]
+    current = spy_bars["close"].iloc[-1]
+    return REGIME_TREND if current > ema20 else REGIME_MEAN_REV
+
+
+# ── Individual signals ────────────────────────────────────────────────────────
+
+def ma_signal(closes: pd.Series, fast: int = 5, slow: int = 20) -> int:
+    """EMA 5/20 crossover.
+    Faster than the original 10/50 — earlier entries, suits 1-month horizon.
+    """
     if len(closes) < slow:
         return 0
     fast_val = _ema(closes, fast).iloc[-1]
@@ -24,9 +53,20 @@ def ma_signal(closes: pd.Series, fast: int = 10, slow: int = 50) -> int:
     return 0
 
 
-def rsi_signal(closes: pd.Series, period: int = 14,
-               oversold: int = 35, overbought: int = 65) -> int:
-    """RSI: below oversold threshold = buy, above overbought = sell."""
+def rsi_signal(closes: pd.Series, period: int = 7,
+               regime: str = REGIME_TREND) -> int:
+    """Regime-aware RSI signal (period=7 for faster reaction).
+
+    Trend regime:
+      RSI > 60 = bullish confirmation (+1)  -- strong trends stay overbought
+      RSI < 40 = bearish confirmation (-1)
+
+    Mean-reversion regime:
+      RSI < 30 = oversold, expect bounce (+1)
+      RSI > 70 = overbought, expect pullback (-1)
+
+    This removes the internal contradiction where RSI penalised strong uptrends.
+    """
     if len(closes) < period + 1:
         return 0
     delta = closes.diff()
@@ -36,15 +76,22 @@ def rsi_signal(closes: pd.Series, period: int = 14,
     rsi = (100 - (100 / (1 + rs))).iloc[-1]
     if pd.isna(rsi):
         return 0
-    if rsi < oversold:
-        return 1
-    if rsi > overbought:
-        return -1
+
+    if regime == REGIME_TREND:
+        if rsi > 60:
+            return 1
+        if rsi < 40:
+            return -1
+    else:  # mean_reversion
+        if rsi < 30:
+            return 1
+        if rsi > 70:
+            return -1
     return 0
 
 
 def macd_signal(closes: pd.Series) -> int:
-    """MACD line above signal line = bullish momentum (buy), below = bearish (sell)."""
+    """MACD line above signal line = bullish momentum (buy), below = bearish."""
     if len(closes) < 35:
         return 0
     macd_line = _ema(closes, 12) - _ema(closes, 26)
@@ -56,26 +103,58 @@ def macd_signal(closes: pd.Series) -> int:
     return 0
 
 
-def volume_signal(closes: pd.Series, volumes: pd.Series, window: int = 20) -> int:
-    """High volume + rising price = accumulation (buy). High volume + falling = distribution (sell).
-    Returns 0 if volume is not significantly above average."""
+def volume_signal(closes: pd.Series, volumes: pd.Series,
+                  window: int = 20) -> int:
+    """High volume + rising price = accumulation (+1).
+    High volume + falling price = distribution (-1).
+    Returns 0 if volume is not significantly above average.
+    """
     if len(closes) < window + 1 or len(volumes) < window + 1:
         return 0
     avg_vol = volumes.iloc[-(window + 1):-1].mean()
     if avg_vol == 0:
         return 0
-    high_volume = volumes.iloc[-1] > avg_vol * 1.5
-    if not high_volume:
+    if volumes.iloc[-1] <= avg_vol * 1.5:
         return 0
     return 1 if closes.iloc[-1] > closes.iloc[-2] else -1
 
 
-def compute_score(closes: pd.Series, volumes: pd.Series) -> int:
+def has_catalyst(df: pd.DataFrame, gap_threshold: float = 0.02) -> bool:
+    """Return True if today has a meaningful catalyst.
+
+    Catalyst = price gap >2% at open vs previous close,
+               OR volume spike (>1.5x 20-day average).
+
+    Rationale: news + unusual volume = short-term momentum evidence.
+    Used as an additional filter so we only buy when something is
+    actually moving, not just scoring well on lagging indicators.
+    """
+    if len(df) < 22:
+        return False
+    prev_close = df["close"].iloc[-2]
+    today_open = df["open"].iloc[-1]
+    if prev_close > 0:
+        gap_pct = abs((today_open - prev_close) / prev_close)
+        if gap_pct >= gap_threshold:
+            return True
+    avg_vol = df["volume"].iloc[-21:-1].mean()
+    if avg_vol > 0 and df["volume"].iloc[-1] > avg_vol * 1.5:
+        return True
+    return False
+
+
+# ── Composite score ───────────────────────────────────────────────────────────
+
+def compute_score(closes: pd.Series, volumes: pd.Series,
+                  regime: str = REGIME_TREND) -> int:
     """Confluence score from -4 (strong sell) to +4 (strong buy).
-    Combines MA crossover + RSI + MACD + volume confirmation."""
+
+    Combines EMA 5/20 crossover + regime-aware RSI(7) + MACD + volume.
+    Pass the regime detected from SPY so RSI behaves correctly.
+    """
     return (
         ma_signal(closes)
-        + rsi_signal(closes)
+        + rsi_signal(closes, regime=regime)
         + macd_signal(closes)
         + volume_signal(closes, volumes)
     )

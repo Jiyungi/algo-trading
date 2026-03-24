@@ -1,20 +1,25 @@
-"""Tracks per-position state for trailing stop and tiered take-profit.
+"""Tracks per-position state for trailing stop, tiered take-profit, and
+time-based exits.
 
 Stored in data/positions_state.json and committed back to the repo by
 GitHub Actions after each run, so state persists across daily executions.
 
 State per symbol:
   peak_price     -- highest price seen since entry; trailing stop anchors here
-  tranches_taken -- 0, 1, or 2 (how many profit tranches have been sold)
+  tranches_taken -- 0 or 1 (how many profit tranches have been sold)
+  entry_date     -- ISO date string; used for max holding period exit
 """
 import json
 import logging
 import os
+from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 STATE_PATH = os.path.join(DATA_DIR, "positions_state.json")
+
+MAX_HOLD_DAYS = 10  # force exit after this many trading days (~2 weeks calendar)
 
 
 def _load() -> dict:
@@ -33,10 +38,30 @@ def _save(state: dict):
         json.dump(state, f, indent=2)
 
 
+def _trading_days_since(entry_date_str: str) -> int:
+    """Approximate trading days elapsed since entry_date (Mon-Fri only)."""
+    try:
+        entry = date.fromisoformat(entry_date_str)
+    except (ValueError, TypeError):
+        return 0
+    total = 0
+    cursor = entry
+    today = date.today()
+    while cursor < today:
+        cursor += timedelta(days=1)
+        if cursor.weekday() < 5:  # Mon-Fri
+            total += 1
+    return total
+
+
 def init_state(symbol: str, entry_price: float):
     """Call when a new position is opened."""
     state = _load()
-    state[symbol] = {"peak_price": entry_price, "tranches_taken": 0}
+    state[symbol] = {
+        "peak_price": entry_price,
+        "tranches_taken": 0,
+        "entry_date": date.today().isoformat(),
+    }
     _save(state)
     logger.info("State init: %s | entry $%.2f", symbol, entry_price)
 
@@ -48,29 +73,24 @@ def ensure_initialized(symbol: str, current_price: float,
     Called at the start of the exit loop for every held position.
     If state already exists, does nothing.
 
-    For pre-existing positions we set tranches based on current P&L so
-    the strategy doesn't immediately fire partial sells on gains that
-    were already there before it started managing the position:
-      pl >= +15% -> tranches = 2  (both already 'taken', ride trailing stop)
-      pl >= +7%  -> tranches = 1  (first tranche already 'taken')
+    Sets tranches based on current P&L so the strategy doesn't immediately
+    fire partial sells on gains that existed before it started managing:
+      pl >= +18% -> tranches = 1  (tranche already 'taken', ride trailing stop)
       otherwise  -> tranches = 0  (manage from scratch)
 
-    Peak is set to current_price (best estimate without history).
+    Entry date is set to today, giving the position a fresh MAX_HOLD_DAYS
+    window rather than immediately triggering a time-based exit.
     """
     state = _load()
     if symbol in state:
-        return  # already tracked, nothing to do
+        return
 
-    if pl_pct >= 15.0:
-        tranches = 2
-    elif pl_pct >= 7.0:
-        tranches = 1
-    else:
-        tranches = 0
-
-    # Use current price as peak — we don't know the historical high,
-    # so the trailing stop starts from here rather than from entry.
-    state[symbol] = {"peak_price": current_price, "tranches_taken": tranches}
+    tranches = 1 if pl_pct >= 18.0 else 0
+    state[symbol] = {
+        "peak_price": current_price,
+        "tranches_taken": tranches,
+        "entry_date": date.today().isoformat(),
+    }
     _save(state)
     logger.info(
         "Bootstrap: %s | pl=%.1f%% | tranches=%d | peak=$%.2f",
@@ -84,7 +104,11 @@ def update_peak(symbol: str, current_price: float,
     state = _load()
     if symbol not in state:
         initial = entry_price if entry_price else current_price
-        state[symbol] = {"peak_price": initial, "tranches_taken": 0}
+        state[symbol] = {
+            "peak_price": initial,
+            "tranches_taken": 0,
+            "entry_date": date.today().isoformat(),
+        }
     else:
         state[symbol]["peak_price"] = max(
             state[symbol].get("peak_price", current_price),
@@ -95,15 +119,25 @@ def update_peak(symbol: str, current_price: float,
 
 
 def get_tranches(symbol: str) -> int:
-    """Return how many profit tranches have been taken (0, 1, or 2)."""
+    """Return how many profit tranches have been taken (0 or 1)."""
     return _load().get(symbol, {}).get("tranches_taken", 0)
+
+
+def get_days_held(symbol: str) -> int:
+    """Return approximate trading days held since entry."""
+    entry_date = _load().get(symbol, {}).get("entry_date")
+    return _trading_days_since(entry_date) if entry_date else 0
 
 
 def mark_tranche(symbol: str, n: int):
     """Record that tranche N has been sold."""
     state = _load()
     if symbol not in state:
-        state[symbol] = {"peak_price": 0, "tranches_taken": n}
+        state[symbol] = {
+            "peak_price": 0,
+            "tranches_taken": n,
+            "entry_date": date.today().isoformat(),
+        }
     else:
         state[symbol]["tranches_taken"] = n
     _save(state)

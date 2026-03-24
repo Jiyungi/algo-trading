@@ -72,7 +72,7 @@ MAX_CLASS_WEIGHT = {
     "international": 0.30,
 }
 
-CORRELATION_THRESHOLD = 0.75   # skip candidate if |corr| > this with any held symbol
+CORRELATION_THRESHOLD = 0.80   # skip candidate if |corr| > this with any held symbol
 TARGET_VOL = 0.20              # annualised vol benchmark for position sizing (~large-cap)
 
 
@@ -174,17 +174,19 @@ def volatility_adjusted_qty(
     bars: dict,
     portfolio_value: float,
     base_pct: float = 0.05,
+    score: int = 3,
 ) -> int:
-    """Scale position size inversely to the asset's annualised volatility.
+    """Scale position size by volatility AND signal conviction.
 
     Base allocation = 5% of portfolio.
-    If the asset's vol is below TARGET_VOL → allocate more (up to 10%).
-    If the asset's vol is above TARGET_VOL → allocate less.
+    Volatility scalar: low-vol assets get more, high-vol get less.
+    Conviction scalar: score=4 gets 30% more than score=3.
 
     Examples at $100k portfolio, base = $5,000:
-      BND  (vol ~4%)  → scalar 5.0x capped → $10,000 allocation
-      SPY  (vol ~15%) → scalar 1.3x        →  $6,667
-      TSLA (vol ~55%) → scalar 0.36x       →  $1,818
+      BND  vol~4%  score=4 → $10,000 (vol cap) × 1.3 → capped $10,000
+      SPY  vol~15% score=4 →  $8,667
+      SPY  vol~15% score=3 →  $6,667
+      TSLA vol~55% score=3 →  $1,818
     """
     if symbol not in bars:
         return 0
@@ -196,12 +198,12 @@ def volatility_adjusted_qty(
     daily_vol = bars[symbol]["close"].pct_change().dropna().std()
     annual_vol = daily_vol * (252 ** 0.5)
 
-    if annual_vol > 0:
-        scalar = min(TARGET_VOL / annual_vol, 2.0)   # cap at 2x base
-        alloc = min(base_alloc * scalar, portfolio_value * 0.10)  # hard cap 10%
-    else:
-        alloc = base_alloc
-
+    vol_scalar = min(TARGET_VOL / annual_vol, 2.0) if annual_vol > 0 else 1.0
+    conviction_scalar = 1.0 + (score - 3) * 0.30   # score 3→1.0x, 4→1.3x
+    alloc = min(
+        base_alloc * vol_scalar * conviction_scalar,
+        portfolio_value * 0.10,  # hard cap 10%
+    )
     return max(1, int(alloc / price))
 
 

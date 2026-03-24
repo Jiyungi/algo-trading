@@ -1,29 +1,28 @@
 """Automated daily trading strategy.
 Runs once at market open via GitHub Actions (free).
 
-Architecture (~5 Alpaca API calls per day, everything else is free):
+Architecture (~6 Alpaca API calls per day, everything else is free):
   yfinance        -> fetch bars for ~100 symbols
-  signals.py      -> score each symbol (-4 to +4 confluence)
+  signals.py      -> regime detection + confluence score (-4 to +4)
   safety.py       -> portfolio health + position size gates
   trade_log       -> circuit breaker + cooldowns
-  position_state  -> trailing stop + tiered take-profit tracking
+  position_state  -> trailing stop + take-profit + time-based exit
   portfolio_risk  -> correlation filter + concentration + vol sizing
   Alpaca          -> place orders only (paper trading, free)
 
-Signal stack (each contributes +1 / -1 / 0):
-  EMA 10/50 crossover  -- trend direction
-  RSI 14               -- overbought / oversold
+Signal stack (each +1 / -1 / 0, regime-aware):
+  EMA 5/20 crossover   -- trend direction (faster than original 10/50)
+  RSI 7                -- trend: >60 bullish / mean-rev: <30 oversold
   MACD                 -- momentum shift
   Volume confirmation  -- accumulation / distribution
 
-Entry: score >= +3 (3 of 4 signals agree to buy)
+Entry: score >= +3 AND has_catalyst (gap >2% or volume spike)
 
 Exit (in priority order):
-  1. Trailing stop  -- sell 100% if price drops 7% below its all-time peak
-  2. Tranche 1      -- sell 33% at +7% gain (lock in early profit)
-  3. Tranche 2      -- sell 50% of remainder at +15% gain
-  4. Signal exit    -- sell 100% of remainder if score <= -3
-  Remainder after tranches rides the trailing stop until it triggers.
+  1. Time-based   -- sell 100% after MAX_HOLD_DAYS trading days
+  2. Trailing stop -- sell 100% if price drops 7% below peak
+  3. Tranche      -- sell 50% at +18% gain (let winners run longer)
+  4. Signal exit  -- sell 100% if score <= -3
 """
 import logging
 import os
@@ -40,7 +39,12 @@ from safety import (  # noqa: E402
     market_is_open,
     MAX_NEW_POSITIONS,
 )
-from signals import compute_score  # noqa: E402
+from signals import (  # noqa: E402
+    compute_score,
+    detect_regime,
+    has_catalyst,
+    REGIME_TREND,
+)
 from scanner import fetch_bars_yf, UNIVERSE  # noqa: E402
 from trade_log import (  # noqa: E402
     log_trade,
@@ -53,9 +57,11 @@ from position_state import (  # noqa: E402
     ensure_initialized,
     update_peak,
     get_tranches,
+    get_days_held,
     mark_tranche,
     clear_state,
     cleanup_closed,
+    MAX_HOLD_DAYS,
 )
 from portfolio_risk import (  # noqa: E402
     correlation_filter,
@@ -71,14 +77,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-POSITION_SIZE_PCT = 0.05  # allocate 5% of portfolio per new position
-BUY_THRESHOLD = 3          # need 3+ signals to buy
-SELL_THRESHOLD = -3        # signal exit threshold (remainder after tranches)
+BUY_THRESHOLD = 3    # need 3+ signals to buy
+SELL_THRESHOLD = -3  # signal exit threshold
 
 # Exit parameters
-TRAIL_PCT = 0.07           # trailing stop: 7% drop from peak sells everything
-TAKE_PROFIT_1 = 7.0        # tranche 1: sell 33% of position at +7%
-TAKE_PROFIT_2 = 15.0       # tranche 2: sell 50% of remainder at +15%
+TRAIL_PCT = 0.07      # trailing stop: 7% drop from peak sells everything
+TAKE_PROFIT = 18.0    # single tranche: sell 50% at +18% (removed early +7% exit)
 
 
 def run():
@@ -108,11 +112,10 @@ def run():
         return
     logger.info(
         "Health OK | Portfolio: $%,.2f | Cash: $%,.2f",
-        portfolio_value,
-        float(account.cash),
+        portfolio_value, float(account.cash),
     )
 
-    # 4. Circuit breaker — check if recent performance is bad
+    # 4. Circuit breaker
     circuit_ok, circuit_reason = circuit_breaker_ok()
     if not circuit_ok:
         logger.warning("Circuit breaker TRIGGERED: %s", circuit_reason)
@@ -127,7 +130,12 @@ def run():
         logger.error("No bar data returned — exiting.")
         return
 
-    # 6. Check exits on held positions (always runs, even if circuit broken)
+    # 6. Detect market regime from SPY
+    spy_bars = bars.get("SPY")
+    regime = detect_regime(spy_bars)
+    logger.info("Regime: %s", regime.upper())
+
+    # 7. Check exits on held positions (always runs, even if circuit broken)
     exited = set()
     for sym, pos in held.items():
         pl_pct = float(pos.unrealized_plpc) * 100
@@ -138,14 +146,26 @@ def run():
         # Bootstrap state for pre-existing positions (no-op if already tracked)
         ensure_initialized(sym, price, entry, pl_pct)
 
-        # Update peak price (ratchets up, never down)
         peak = update_peak(sym, price, entry_price=entry)
         trail_stop_price = peak * (1 - TRAIL_PCT)
         tranches = get_tranches(sym)
+        days_held = get_days_held(sym)
 
-        # ── Priority 1: Trailing stop ────────────────────────────────────
-        # Fires when price drops TRAIL_PCT% below its all-time peak.
-        # Sells 100% of remaining position regardless of tranches taken.
+        # ── Priority 1: Time-based exit ──────────────────────────────────
+        # Frees capital from slow trades; critical for 1-month horizon.
+        if days_held >= MAX_HOLD_DAYS:
+            logger.info(
+                "TIME EXIT   | %s | %d days | P&L: %+.1f%%",
+                sym, days_held, pl_pct,
+            )
+            place_order(sym, qty, side="sell")
+            log_trade(sym, "sell", qty, price,
+                      f"time_exit({days_held}d)", pl_pct)
+            clear_state(sym)
+            exited.add(sym)
+            continue
+
+        # ── Priority 2: Trailing stop ─────────────────────────────────────
         if price <= trail_stop_price:
             drop_from_peak = ((price - peak) / peak) * 100
             logger.info(
@@ -160,42 +180,30 @@ def run():
             exited.add(sym)
             continue
 
-        # ── Priority 2: Tranche 2 — sell 50% of remainder at +15% ───────
-        elif pl_pct >= TAKE_PROFIT_2 and tranches < 2:
+        # ── Priority 3: Single take-profit tranche at +18% ───────────────
+        # Removed the early +7% sell — let winners run longer.
+        elif pl_pct >= TAKE_PROFIT and tranches < 1:
             sell_qty = max(1, int(qty * 0.50))
             logger.info(
-                "TAKE PROFIT 2 | %s | +%.1f%% | selling %d of %d shares",
-                sym, pl_pct, sell_qty, qty,
+                "TAKE PROFIT | %s | +%.1f%% | selling %d of %d shares",
+                sym, pl_pct, sell_qty, int(qty),
             )
             place_order(sym, sell_qty, side="sell")
-            log_trade(sym, "sell", sell_qty, price, "take_profit_2", pl_pct)
-            mark_tranche(sym, 2)
-
-        # ── Priority 3: Tranche 1 — sell 33% at +7% ─────────────────────
-        elif pl_pct >= TAKE_PROFIT_1 and tranches < 1:
-            sell_qty = max(1, int(qty * 0.33))
-            logger.info(
-                "TAKE PROFIT 1 | %s | +%.1f%% | selling %d of %d shares",
-                sym, pl_pct, sell_qty, qty,
-            )
-            place_order(sym, sell_qty, side="sell")
-            log_trade(sym, "sell", sell_qty, price, "take_profit_1", pl_pct)
+            log_trade(sym, "sell", sell_qty, price, "take_profit", pl_pct)
             mark_tranche(sym, 1)
 
-        # ── Priority 4: Signal exit — sell 100% of remainder ────────────
+        # ── Priority 4: Signal exit ───────────────────────────────────────
         elif sym in bars:
             df = bars[sym]
-            score = compute_score(df["close"], df["volume"])
+            score = compute_score(df["close"], df["volume"], regime=regime)
             if score <= SELL_THRESHOLD:
                 logger.info(
                     "SIGNAL SELL | %s | score=%+d | P&L: %+.1f%%",
                     sym, score, pl_pct,
                 )
                 place_order(sym, qty, side="sell")
-                log_trade(
-                    sym, "sell", qty, price,
-                    f"signal_exit(score={score})", pl_pct,
-                )
+                log_trade(sym, "sell", qty, price,
+                          f"signal_exit(score={score})", pl_pct)
                 clear_state(sym)
                 if pl_pct < 0:
                     add_cooldown(sym)
@@ -203,13 +211,14 @@ def run():
             else:
                 logger.info(
                     "HOLD        | %s | score=%+d | P&L: %+.1f%% "
-                    "| peak $%.2f | trail stop $%.2f",
-                    sym, score, pl_pct, peak, trail_stop_price,
+                    "| day %d/%d | trail $%.2f",
+                    sym, score, pl_pct, days_held, MAX_HOLD_DAYS,
+                    trail_stop_price,
                 )
 
     cleanup_closed(set(held.keys()) - exited)
 
-    # 7. Scan for buy signals (skipped if circuit breaker is triggered)
+    # 8. Scan for buy signals (skipped if circuit breaker triggered)
     if not circuit_ok:
         logger.warning("Skipping new buys — circuit breaker is active.")
         logger.info("Done | Exits: %d | Buys: 0", len(exited))
@@ -227,17 +236,26 @@ def run():
             logger.info("COOLDOWN    | %s | skipping", sym)
             continue
         df = bars[sym]
-        score = compute_score(df["close"], df["volume"])
+        score = compute_score(df["close"], df["volume"], regime=regime)
         price = float(df["close"].iloc[-1])
-        logger.info("SCAN        | %s | score=%+d | $%.2f", sym, score, price)
-        if score >= BUY_THRESHOLD:
+
+        if score < BUY_THRESHOLD:
+            continue
+
+        # Catalyst filter: require gap >2% or volume spike
+        catalyst = has_catalyst(df)
+        logger.info(
+            "SCAN        | %s | score=%+d | $%.2f | catalyst=%s",
+            sym, score, price, catalyst,
+        )
+        if catalyst:
             candidates.append((sym, score, price))
 
     candidates.sort(key=lambda x: x[1], reverse=True)
-
-    # Correlation filter: remove candidates that move with held positions
     candidates = correlation_filter(candidates, still_held, bars)
-    logger.info("After correlation filter: %d candidates", len(candidates))
+    logger.info(
+        "Candidates after correlation filter: %d", len(candidates)
+    )
 
     new_buys = 0
     for sym, score, price in candidates:
@@ -245,37 +263,40 @@ def run():
             logger.info("MAX_NEW_POSITIONS reached — done for today.")
             break
 
-        # Asset class concentration check
         ok, reason = concentration_check(sym, positions, portfolio_value)
         if not ok:
             logger.warning("CONCENTRATION | %s", reason)
             continue
         logger.info("CONCENTRATION | %s | %s", sym, reason)
 
-        # Per-trade safety check
-        qty = volatility_adjusted_qty(sym, bars, portfolio_value)
+        # Conviction-weighted, volatility-adjusted sizing
+        qty = volatility_adjusted_qty(sym, bars, portfolio_value, score=score)
         ok, reason = pre_trade_check(sym, qty, price, portfolio_value)
         if not ok:
             logger.warning("Pre-trade failed | %s: %s", sym, reason)
             continue
 
         logger.info(
-            "BUY         | %s | score=%+d | qty=%d | $%.2f",
-            sym, score, qty, price,
+            "BUY         | %s | score=%+d | qty=%d | $%.2f | %s regime",
+            sym, score, qty, price, regime,
         )
         place_order(sym, qty, side="buy")
-        log_trade(sym, "buy", qty, price, f"signal_entry(score={score})")
+        log_trade(sym, "buy", qty, price,
+                  f"signal_entry(score={score},regime={regime})")
         init_state(sym, price)
         new_buys += 1
 
     if not candidates:
-        logger.info("No buy signals today.")
+        logger.info(
+            "No buy signals today (regime=%s, threshold=%d+catalyst).",
+            regime, BUY_THRESHOLD,
+        )
 
-    # Log Sharpe + drawdown (1 extra API call, still free tier)
     log_portfolio_metrics(trading_client)
 
     logger.info("-" * 60)
-    logger.info("Done | Buys: %d | Exits: %d", new_buys, len(exited))
+    logger.info("Done | Regime: %s | Buys: %d | Exits: %d",
+                regime.upper(), new_buys, len(exited))
 
 
 if __name__ == "__main__":
