@@ -16,7 +16,7 @@ jobs:
     env:
       ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
       ALPACA_SECRET: ${{ secrets.ALPACA_SECRET }}
-      DRY_RUN: "1"   # change to "0" when ready for paper trading
+      DRY_RUN: "0"   # change to "0" when ready for paper trading
 
     steps:
       - uses: actions/checkout@v4
