@@ -50,6 +50,7 @@ from trade_log import (  # noqa: E402
 )
 from position_state import (  # noqa: E402
     init_state,
+    ensure_initialized,
     update_peak,
     get_tranches,
     mark_tranche,
@@ -70,7 +71,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-POSITION_SIZE_PCT = 0.05   # allocate 5% of portfolio per new position
+POSITION_SIZE_PCT = 0.05  # allocate 5% of portfolio per new position
 BUY_THRESHOLD = 3          # need 3+ signals to buy
 SELL_THRESHOLD = -3        # signal exit threshold (remainder after tranches)
 
@@ -78,7 +79,6 @@ SELL_THRESHOLD = -3        # signal exit threshold (remainder after tranches)
 TRAIL_PCT = 0.07           # trailing stop: 7% drop from peak sells everything
 TAKE_PROFIT_1 = 7.0        # tranche 1: sell 33% of position at +7%
 TAKE_PROFIT_2 = 15.0       # tranche 2: sell 50% of remainder at +15%
-
 
 
 def run():
@@ -134,6 +134,9 @@ def run():
         qty = float(pos.qty)
         price = float(pos.current_price)
         entry = float(pos.avg_entry_price)
+
+        # Bootstrap state for pre-existing positions (no-op if already tracked)
+        ensure_initialized(sym, price, entry, pl_pct)
 
         # Update peak price (ratchets up, never down)
         peak = update_peak(sym, price, entry_price=entry)

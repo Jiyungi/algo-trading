@@ -41,12 +41,46 @@ def init_state(symbol: str, entry_price: float):
     logger.info("State init: %s | entry $%.2f", symbol, entry_price)
 
 
+def ensure_initialized(symbol: str, current_price: float,
+                        entry_price: float, pl_pct: float):
+    """Bootstrap state for positions that predate this strategy.
+
+    Called at the start of the exit loop for every held position.
+    If state already exists, does nothing.
+
+    For pre-existing positions we set tranches based on current P&L so
+    the strategy doesn't immediately fire partial sells on gains that
+    were already there before it started managing the position:
+      pl >= +15% -> tranches = 2  (both already 'taken', ride trailing stop)
+      pl >= +7%  -> tranches = 1  (first tranche already 'taken')
+      otherwise  -> tranches = 0  (manage from scratch)
+
+    Peak is set to current_price (best estimate without history).
+    """
+    state = _load()
+    if symbol in state:
+        return  # already tracked, nothing to do
+
+    if pl_pct >= 15.0:
+        tranches = 2
+    elif pl_pct >= 7.0:
+        tranches = 1
+    else:
+        tranches = 0
+
+    # Use current price as peak — we don't know the historical high,
+    # so the trailing stop starts from here rather than from entry.
+    state[symbol] = {"peak_price": current_price, "tranches_taken": tranches}
+    _save(state)
+    logger.info(
+        "Bootstrap: %s | pl=%.1f%% | tranches=%d | peak=$%.2f",
+        symbol, pl_pct, tranches, current_price,
+    )
+
+
 def update_peak(symbol: str, current_price: float,
                 entry_price: float = None) -> float:
-    """Ratchet peak price upward. Returns the (possibly updated) peak.
-    If no state exists yet (position predates this system), bootstraps
-    from entry_price so the trailing stop starts at the right level.
-    """
+    """Ratchet peak price upward. Returns the (possibly updated) peak."""
     state = _load()
     if symbol not in state:
         initial = entry_price if entry_price else current_price
