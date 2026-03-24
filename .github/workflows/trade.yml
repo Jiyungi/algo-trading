@@ -1,9 +1,7 @@
 name: Trade (dry-run)
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # manual trigger only — strategy.yml is the active workflow
 
 jobs:
   run:
