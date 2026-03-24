@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: algo-trading-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn dashboard:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: ALPACA_API_KEY
+        sync: false        # set manually in Render dashboard
+      - key: ALPACA_SECRET_KEY
+        sync: false        # set manually in Render dashboard
+      - key: DRY_RUN
+        value: "1"
