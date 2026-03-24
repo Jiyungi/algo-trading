@@ -1,13 +1,14 @@
 """Signal computation — pure math, zero API calls.
 
 Each function returns:  +1 (buy), -1 (sell), 0 (hold)
-compute_score() combines all four into a confluence score (-4 to +4).
+compute_score() combines signals into a confluence score.
 
-Regime-aware design:
-  trend regime      -- SPY above 20-day EMA
-    EMA 5/20 crossover, RSI >60 = bullish confirmation, MACD, volume
-  mean_reversion    -- SPY below 20-day EMA
-    EMA 5/20 crossover, RSI <30 = oversold buy, MACD, volume
+Signals (each ±1):
+  EMA 5/20 crossover, RSI(7) regime-aware, MACD, volume, acceleration
+Bonuses applied inside compute_score():
+  +1 trend alignment (EMA and MACD both bullish)
+Bonuses applied in strategy.py:
+  +1 catalyst (gap >2% or volume spike)
 """
 import numpy as np
 import pandas as pd
@@ -119,6 +120,30 @@ def volume_signal(closes: pd.Series, volumes: pd.Series,
     return 1 if closes.iloc[-1] > closes.iloc[-2] else -1
 
 
+def acceleration_signal(closes: pd.Series, lookback: int = 2,
+                        threshold: float = 0.03) -> int:
+    """2-day return acceleration: >+3% → +1 (momentum), <-3% → -1 (fade).
+
+    Captures short-term continuation moves earlier than slower signals.
+    """
+    if len(closes) < lookback + 1:
+        return 0
+    past = closes.iloc[-1 - lookback]
+    if past <= 0:
+        return 0
+    ret = (closes.iloc[-1] - past) / past
+    if ret > threshold:
+        return 1
+    if ret < -threshold:
+        return -1
+    return 0
+
+
+def ema(closes: pd.Series, span: int) -> float:
+    """Return the latest EMA value for the given span."""
+    return _ema(closes, span).iloc[-1]
+
+
 def has_catalyst(df: pd.DataFrame, gap_threshold: float = 0.02) -> bool:
     """Return True if today has a meaningful catalyst.
 
@@ -168,15 +193,21 @@ def momentum_continuation(closes: pd.Series,
 
 def compute_score(closes: pd.Series, volumes: pd.Series,
                   regime: str = REGIME_TREND) -> int:
-    """Confluence score from -4 (strong sell) to +4 (strong buy).
+    """Confluence score combining all signals.
 
-    Combines EMA 5/20 crossover + regime-aware RSI(7) + MACD + volume.
-    Pass the regime detected from SPY so RSI behaves correctly.
+    Base signals (each ±1): EMA 5/20, RSI(7), MACD, volume, acceleration.
+    Trend alignment bonus: +1 when both EMA and MACD are bullish.
     Catalyst (+1 bonus) is applied in strategy.py before threshold check.
     """
-    return (
-        ma_signal(closes)
+    ma = ma_signal(closes)
+    mc = macd_signal(closes)
+    score = (
+        ma
         + rsi_signal(closes, regime=regime)
-        + macd_signal(closes)
+        + mc
         + volume_signal(closes, volumes)
+        + acceleration_signal(closes)
     )
+    if ma == 1 and mc == 1:
+        score += 1  # trend alignment bonus
+    return score

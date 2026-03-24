@@ -24,7 +24,7 @@ COOLDOWN_PATH = os.path.join(DATA_DIR, "cooldowns.json")
 
 COOLDOWN_DAYS = 5               # days to block a symbol after stop-loss exit
 CIRCUIT_BREAKER_N = 10          # number of recent closed trades to evaluate
-CIRCUIT_BREAKER_MIN_WIN_RATE = 0.40  # halt new buys if win rate drops below this
+CIRCUIT_BREAKER_MIN_WIN_RATE = 0.40  # halt new buys below this rate
 
 FIELDNAMES = ["date", "symbol", "side", "qty", "price", "reason", "pnl_pct"]
 
@@ -33,7 +33,7 @@ def _ensure_data_dir():
     os.makedirs(DATA_DIR, exist_ok=True)
 
 
-# ── Trade logging ─────────────────────────────────────────────────────────────
+# ── Trade logging ────────────────────────────────────────────────────────────
 
 def log_trade(symbol: str, side: str, qty: float, price: float,
               reason: str, pnl_pct: float = None):
@@ -64,10 +64,10 @@ def load_recent_trades(n: int = 20) -> list:
     return rows[-n:]
 
 
-# ── Circuit breaker ───────────────────────────────────────────────────────────
+# ── Circuit breaker ──────────────────────────────────────────────────────────
 
 def get_win_rate(n: int = CIRCUIT_BREAKER_N) -> float | None:
-    """Win rate of the last N closed (sell) trades. None if not enough history."""
+    """Win rate of last N closed (sell) trades. None if not enough history."""
     closed = [
         t for t in load_recent_trades(n * 3)
         if t["side"] == "sell" and t["pnl_pct"]
@@ -119,7 +119,7 @@ def circuit_breaker_ok() -> tuple[bool, str]:
     )
 
 
-# ── Cooldowns ─────────────────────────────────────────────────────────────────
+# ── Cooldowns ────────────────────────────────────────────────────────────────
 
 def _load_cooldowns() -> dict:
     if not os.path.exists(COOLDOWN_PATH):
@@ -137,13 +137,24 @@ def _save_cooldowns(cooldowns: dict):
         json.dump(cooldowns, f, indent=2)
 
 
-def add_cooldown(symbol: str, days: int = COOLDOWN_DAYS):
-    """Block a symbol from being bought again for N days."""
+def add_cooldown(symbol: str, days: int = COOLDOWN_DAYS,
+                 stop_price: float = None):
+    """Block a symbol from being bought again for N days.
+
+    stop_price is recorded so can_override_cooldown() can check
+    whether the price has recovered above the stop level.
+    """
     cooldowns = _load_cooldowns()
     expiry = (date.today() + timedelta(days=days)).isoformat()
-    cooldowns[symbol] = expiry
+    cooldowns[symbol] = {"expiry": expiry, "stop_price": stop_price}
     _save_cooldowns(cooldowns)
     logger.info("Cooldown: %s blocked until %s", symbol, expiry)
+
+
+def _cooldown_expiry(entry) -> date:
+    """Return expiry date from a cooldown entry (str or dict)."""
+    expiry_str = entry if isinstance(entry, str) else entry["expiry"]
+    return date.fromisoformat(expiry_str)
 
 
 def is_on_cooldown(symbol: str) -> bool:
@@ -151,10 +162,31 @@ def is_on_cooldown(symbol: str) -> bool:
     cooldowns = _load_cooldowns()
     if symbol not in cooldowns:
         return False
-    expiry = date.fromisoformat(cooldowns[symbol])
+    expiry = _cooldown_expiry(cooldowns[symbol])
     if date.today() >= expiry:
-        # Expired — remove it
         del cooldowns[symbol]
         _save_cooldowns(cooldowns)
         return False
     return True
+
+
+def can_override_cooldown(symbol: str, score: int,
+                          current_price: float) -> bool:
+    """Allow re-entry despite cooldown when score>=4 and price recovered.
+
+    Price is considered recovered when it is above the stop_price that
+    was recorded when the cooldown was set (V-shaped recovery).
+    Requires score >= 4 (highest conviction only).
+    """
+    if score < 4:
+        return False
+    cooldowns = _load_cooldowns()
+    if symbol not in cooldowns:
+        return False
+    entry = cooldowns[symbol]
+    if isinstance(entry, str):
+        return False  # old format — no stop_price stored
+    stop_price = entry.get("stop_price")
+    if stop_price is None:
+        return False
+    return current_price > stop_price

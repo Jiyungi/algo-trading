@@ -42,6 +42,7 @@ from safety import (  # noqa: E402
 from signals import (  # noqa: E402
     compute_score,
     detect_regime,
+    ema,
     has_catalyst,
     momentum_continuation,
 )
@@ -51,6 +52,7 @@ from trade_log import (  # noqa: E402
     circuit_breaker_ok,
     is_on_cooldown,
     add_cooldown,
+    can_override_cooldown,
 )
 from position_state import (  # noqa: E402
     init_state,
@@ -147,7 +149,9 @@ def run():
         ensure_initialized(sym, price, entry, pl_pct)
 
         peak = update_peak(sym, price, entry_price=entry)
-        trail_stop_price = peak * (1 - TRAIL_PCT)
+        # Tighten trailing stop to 5% once position is up >= 10%
+        trail_pct = 0.05 if pl_pct >= 10.0 else TRAIL_PCT
+        trail_stop_price = peak * (1 - trail_pct)
         tranches = get_tranches(sym)
         days_held = get_days_held(sym)
 
@@ -176,13 +180,29 @@ def run():
             log_trade(sym, "sell", qty, price, "trailing_stop", pl_pct)
             clear_state(sym)
             if pl_pct < 0:
-                add_cooldown(sym)
+                add_cooldown(sym, stop_price=trail_stop_price)
             exited.add(sym)
             continue
 
-        # ── Priority 3: Single take-profit tranche at +18% ───────────────
-        # Removed the early +7% sell — let winners run longer.
-        elif pl_pct >= TAKE_PROFIT and tranches < 1:
+        # ── Priority 3: Early weak-momentum exit ─────────────────────────
+        # Exit flat trades where price has slipped below EMA(5).
+        # Avoids tying up capital in stagnant positions.
+        if sym in bars and -3.0 <= pl_pct <= 3.0:
+            ema5 = ema(bars[sym]["close"], 5)
+            if price < ema5:
+                logger.info(
+                    "WEAK EXIT   | %s | below EMA5 | P&L: %+.1f%%",
+                    sym, pl_pct,
+                )
+                place_order(sym, qty, side="sell")
+                log_trade(sym, "sell", qty, price,
+                          "weak_momentum_exit", pl_pct)
+                clear_state(sym)
+                exited.add(sym)
+                continue
+
+        # ── Priority 4: Single take-profit tranche at +18% ───────────────
+        if pl_pct >= TAKE_PROFIT and tranches < 1:
             sell_qty = max(1, int(qty * 0.50))
             logger.info(
                 "TAKE PROFIT | %s | +%.1f%% | selling %d of %d shares",
@@ -192,7 +212,7 @@ def run():
             log_trade(sym, "sell", sell_qty, price, "take_profit", pl_pct)
             mark_tranche(sym, 1)
 
-        # ── Priority 4: Signal exit ───────────────────────────────────────
+        # ── Priority 5: Signal exit ───────────────────────────────────────
         elif sym in bars:
             df = bars[sym]
             score = compute_score(df["close"], df["volume"], regime=regime)
@@ -206,7 +226,7 @@ def run():
                           f"signal_exit(score={score})", pl_pct)
                 clear_state(sym)
                 if pl_pct < 0:
-                    add_cooldown(sym)
+                    add_cooldown(sym, stop_price=price)
                 exited.add(sym)
             else:
                 logger.info(
@@ -232,25 +252,32 @@ def run():
             continue
         if sym not in bars:
             continue
-        if is_on_cooldown(sym):
-            logger.info("COOLDOWN    | %s | skipping", sym)
-            continue
+
         df = bars[sym]
         score = compute_score(df["close"], df["volume"], regime=regime)
         price = float(df["close"].iloc[-1])
-
-        # Catalyst is a +1 score bonus (gap >2% or volume spike)
         catalyst = has_catalyst(df)
         effective_score = score + (1 if catalyst else 0)
 
+        if is_on_cooldown(sym):
+            if can_override_cooldown(sym, effective_score, price):
+                logger.info(
+                    "COOLDOWN OVERRIDE | %s | score=%+d | recovery",
+                    sym, effective_score,
+                )
+            else:
+                logger.info("COOLDOWN    | %s | skipping", sym)
+                continue
+
+        # Primary entry: effective score meets threshold
         if effective_score >= BUY_THRESHOLD:
             logger.info(
                 "SCAN        | %s | score=%+d | $%.2f | catalyst=%s",
                 sym, effective_score, price, catalyst,
             )
             candidates.append((sym, effective_score, price))
+        # Secondary entry: momentum continuation
         elif score >= 2 and momentum_continuation(df["close"]):
-            # Secondary entry: price > EMA5 and +2% over 3 days
             logger.info(
                 "MOMENTUM    | %s | score=%+d | $%.2f | continuation",
                 sym, score, price,

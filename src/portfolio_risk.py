@@ -11,7 +11,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# ── Asset class map ───────────────────────────────────────────────────────────
+# ── Asset class map ──────────────────────────────────────────────────────────
 ASSET_CLASS = {
     # Individual equities
     "AAPL": "equity", "MSFT": "equity", "NVDA": "equity", "GOOGL": "equity",
@@ -62,7 +62,7 @@ def _asset_class(symbol: str) -> str:
     return ASSET_CLASS.get(symbol, "equity")
 
 
-# ── 1. Correlation filter ─────────────────────────────────────────────────────
+# ── 1. Correlation filter ────────────────────────────────────────────────────
 
 def correlation_filter(
     candidates: list,
@@ -144,7 +144,7 @@ def concentration_check(
     return True, f"{asset_cls} {current_weight:.0%} / {limit:.0%}"
 
 
-# ── 3. Volatility-adjusted position sizing ────────────────────────────────────
+# ── 3. Volatility-adjusted position sizing ───────────────────────────────────
 
 def volatility_adjusted_qty(
     symbol: str,
@@ -171,7 +171,7 @@ def volatility_adjusted_qty(
     annual_vol = daily_vol * (252 ** 0.5)
 
     vol_scalar = min(TARGET_VOL / annual_vol, 2.0) if annual_vol > 0 else 1.0
-    conviction_scalar = 1.0 + (score - 3) * 0.30  # 3→1.0x, 4→1.3x
+    conviction_scalar = 0.8 + (score - 3) * 0.70  # 3→0.8x, 4→1.5x
     alloc = min(
         base_alloc * vol_scalar * conviction_scalar,
         portfolio_value * 0.10,
@@ -179,7 +179,7 @@ def volatility_adjusted_qty(
     return max(1, int(alloc / price))
 
 
-# ── 4. Portfolio metrics logging ──────────────────────────────────────────────
+# ── 4. Portfolio metrics logging ─────────────────────────────────────────────
 
 def log_portfolio_metrics(trading_client) -> None:
     """Log Sharpe ratio and max drawdown from 3M portfolio history.
