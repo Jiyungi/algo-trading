@@ -1,3 +1,8 @@
 date,symbol,side,qty,price,reason,pnl_pct
 2026-03-24 14:59,AAPL,sell,19.0,252.20,trailing_stop,-7.67
 2026-03-24 15:10,AAPL,sell,19.0,253.30,trailing_stop,-7.26
+2026-03-25 15:46,VNQ,sell,8.0,88.03,trailing_stop,-7.49
+2026-03-25 15:46,AMD,buy,7,217.61,"signal_entry(score=4,regime=mean_reversion)",
+2026-03-25 15:46,MRK,buy,17,119.58,"signal_entry(score=3,regime=mean_reversion)",
+2026-03-25 15:46,COP,buy,13,129.38,"signal_entry(score=3,regime=mean_reversion)",
+2026-03-25 15:46,SLB,buy,25,52.22,"signal_entry(score=3,regime=mean_reversion)",

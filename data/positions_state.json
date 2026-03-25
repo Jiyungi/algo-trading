@@ -11,8 +11,24 @@
     "peak_price": 689.104,
     "tranches_taken": 0
   },
-  "VNQ": {
-    "peak_price": 95.16,
-    "tranches_taken": 0
+  "AMD": {
+    "peak_price": 217.61000061035156,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-25"
+  },
+  "MRK": {
+    "peak_price": 119.58000183105469,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-25"
+  },
+  "COP": {
+    "peak_price": 129.3800048828125,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-25"
+  },
+  "SLB": {
+    "peak_price": 52.21500015258789,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-25"
   }
 }
