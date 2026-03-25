@@ -161,7 +161,15 @@ def api_status():
 
     cooldowns = _get_cooldowns()
     today = date.today().isoformat()
-    active_cooldowns = {sym: exp for sym, exp in cooldowns.items() if exp > today}
+    active_cooldowns = {}
+    for sym, val in cooldowns.items():
+        expiry = None
+        if isinstance(val, str):
+            expiry = val
+        elif isinstance(val, dict):
+            expiry = val.get("expiry") or val.get("exp")
+        if expiry and expiry > today:
+            active_cooldowns[sym] = val
 
     return jsonify({
         "circuit_breaker_ok": ok,
