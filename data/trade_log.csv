@@ -6,3 +6,7 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-03-25 15:46,MRK,buy,17,119.58,"signal_entry(score=3,regime=mean_reversion)",
 2026-03-25 15:46,COP,buy,13,129.38,"signal_entry(score=3,regime=mean_reversion)",
 2026-03-25 15:46,SLB,buy,25,52.22,"signal_entry(score=3,regime=mean_reversion)",
+2026-03-25 18:59,MS,buy,1,165.81,"signal_entry(score=2,regime=mean_reversion)",
+2026-03-25 18:59,XOM,buy,1,163.81,"signal_entry(score=2,regime=mean_reversion)",
+2026-03-25 18:59,CVX,buy,1,205.80,"signal_entry(score=2,regime=mean_reversion)",
+2026-03-25 18:59,EOG,buy,1,142.95,"signal_entry(score=2,regime=mean_reversion)",

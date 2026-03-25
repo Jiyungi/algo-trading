@@ -12,7 +12,7 @@
     "tranches_taken": 0
   },
   "AMD": {
-    "peak_price": 217.61000061035156,
+    "peak_price": 220.575,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
   },
@@ -28,6 +28,26 @@
   },
   "SLB": {
     "peak_price": 52.21500015258789,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-25"
+  },
+  "MS": {
+    "peak_price": 165.80999755859375,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-25"
+  },
+  "XOM": {
+    "peak_price": 163.80999755859375,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-25"
+  },
+  "CVX": {
+    "peak_price": 205.79750061035156,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-25"
+  },
+  "EOG": {
+    "peak_price": 142.9499969482422,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
   }
