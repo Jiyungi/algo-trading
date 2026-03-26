@@ -87,9 +87,10 @@ def correlation_filter(
         return candidates
 
     filtered = []
-    for sym, score, price in candidates:
+    for candidate in candidates:
+        sym = candidate[0]
         if sym not in bars:
-            filtered.append((sym, score, price))
+            filtered.append(candidate)
             continue
 
         candidate_ret = bars[sym]["close"].pct_change().dropna()
@@ -97,7 +98,8 @@ def correlation_filter(
 
         for held_sym, held_ret in held_returns.items():
             aligned = pd.concat(
-                [candidate_ret.rename("c"), held_ret.rename("h")], axis=1
+                [candidate_ret.rename("c"), held_ret.rename("h")],
+                axis=1,
             ).dropna()
             if len(aligned) < 20:
                 continue
@@ -111,7 +113,7 @@ def correlation_filter(
                 sym, max_corr, most_correlated, threshold,
             )
         else:
-            filtered.append((sym, score, price))
+            filtered.append(candidate)
 
     return filtered
 

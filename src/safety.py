@@ -1,17 +1,19 @@
 """Pre-trade safety gates — checked before every order is placed.
 
-portfolio_health_check() → must pass before ANY trading runs
-pre_trade_check()        → must pass for each individual order
-market_is_open()         → guard against off-hours execution
+portfolio_health_check()    → must pass before ANY trading runs
+pre_trade_check()           → must pass for each individual order
+exposure_check()            → caps total new capital deployed per run
+market_is_open()            → guard against off-hours execution
 """
 import logging
 from config import trading_client, STOP_LOSS_PCT, DAILY_DROP_PCT
 
 logger = logging.getLogger(__name__)
 
-MAX_POSITION_PCT = 0.10   # no single position > 10% of portfolio value
-MAX_NEW_POSITIONS = 4     # max new buys per strategy run
-MIN_CASH_PCT = 0.05       # halt if cash < 5% of portfolio
+MAX_POSITION_PCT = 0.10    # no single position > 10% of portfolio
+MAX_NEW_POSITIONS = 4      # max new buys per strategy run
+MIN_CASH_PCT = 0.05        # halt if cash < 5% of portfolio
+MAX_NEW_EXPOSURE_PCT = 0.20  # total new capital deployed per run ≤ 20%
 
 
 def portfolio_health_check(account, positions) -> tuple[bool, str]:
@@ -61,6 +63,39 @@ def pre_trade_check(symbol: str, qty: float, price: float,
             f"{MAX_POSITION_PCT:.0%} position limit"
         )
     return True, "OK"
+
+
+def exposure_check(
+    symbol: str,
+    qty: float,
+    price: float,
+    portfolio_value: float,
+    deployed_so_far: float,
+) -> tuple[bool, str]:
+    """Block the order if adding it would exceed the per-run exposure cap.
+
+    Tracks cumulative new capital committed in the current run.
+    Prevents a run from deploying too much capital at once even when
+    each individual position passes the per-position size check.
+
+    Args:
+        deployed_so_far: sum of (qty * price) for all buys already
+                         placed this run.
+    """
+    if portfolio_value <= 0:
+        return True, "OK"
+    trade_value = qty * price
+    total_after = deployed_so_far + trade_value
+    cap = portfolio_value * MAX_NEW_EXPOSURE_PCT
+    if total_after > cap:
+        return False, (
+            f"run exposure ${total_after:,.0f} would exceed "
+            f"{MAX_NEW_EXPOSURE_PCT:.0%} cap (${cap:,.0f})"
+        )
+    return True, (
+        f"run exposure ${total_after:,.0f} / ${cap:,.0f} "
+        f"({total_after / portfolio_value:.1%})"
+    )
 
 
 def market_is_open() -> bool:

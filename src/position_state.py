@@ -8,6 +8,7 @@ State per symbol:
   peak_price     -- highest price seen since entry; trailing stop anchors here
   tranches_taken -- 0 or 1 (how many profit tranches have been sold)
   entry_date     -- ISO date string; used for max holding period exit
+  trade_type     -- "trend", "mean_reversion", or "catalyst"
 """
 import json
 import logging
@@ -20,6 +21,13 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 STATE_PATH = os.path.join(DATA_DIR, "positions_state.json")
 
 MAX_HOLD_DAYS = 7   # force exit after this many trading days
+
+# Per-type max holding periods (trading days)
+_MAX_HOLD_BY_TYPE = {
+    "trend": 7,
+    "mean_reversion": 4,
+    "catalyst": 1,
+}
 
 
 def _load() -> dict:
@@ -54,16 +62,21 @@ def _trading_days_since(entry_date_str: str) -> int:
     return total
 
 
-def init_state(symbol: str, entry_price: float):
+def init_state(symbol: str, entry_price: float,
+               trade_type: str = "trend"):
     """Call when a new position is opened."""
     state = _load()
     state[symbol] = {
         "peak_price": entry_price,
         "tranches_taken": 0,
         "entry_date": date.today().isoformat(),
+        "trade_type": trade_type,
     }
     _save(state)
-    logger.info("State init: %s | entry $%.2f", symbol, entry_price)
+    logger.info(
+        "State init: %s | entry $%.2f | type=%s",
+        symbol, entry_price, trade_type,
+    )
 
 
 def ensure_initialized(
@@ -84,20 +97,56 @@ def ensure_initialized(
     window rather than immediately triggering a time-based exit.
     """
     state = _load()
-    if symbol in state:
+    tranches = 1 if pl_pct >= 18.0 else 0
+
+    if symbol not in state:
+        state[symbol] = {
+            "peak_price": current_price,
+            "tranches_taken": tranches,
+            "entry_date": date.today().isoformat(),
+            "trade_type": "trend",  # safe default for bootstrapped positions
+        }
+        _save(state)
+        logger.info(
+            "Bootstrap: %s | pl=%.1f%% | tranches=%d | peak=$%.2f",
+            symbol, pl_pct, tranches, current_price,
+        )
         return
 
-    tranches = 1 if pl_pct >= 18.0 else 0
-    state[symbol] = {
-        "peak_price": current_price,
-        "tranches_taken": tranches,
-        "entry_date": date.today().isoformat(),
-    }
-    _save(state)
-    logger.info(
-        "Bootstrap: %s | pl=%.1f%% | tranches=%d | peak=$%.2f",
-        symbol, pl_pct, tranches, current_price,
-    )
+    existing = state[symbol]
+    changed = False
+
+    if "peak_price" not in existing:
+        existing["peak_price"] = current_price
+        changed = True
+    if "tranches_taken" not in existing:
+        existing["tranches_taken"] = tranches
+        changed = True
+    if not existing.get("entry_date"):
+        existing["entry_date"] = date.today().isoformat()
+        changed = True
+    if not existing.get("trade_type"):
+        existing["trade_type"] = "trend"
+        changed = True
+
+    if changed:
+        _save(state)
+        logger.info(
+            "Backfilled state: %s | entry_date=%s | type=%s",
+            symbol,
+            existing.get("entry_date"),
+            existing.get("trade_type"),
+        )
+
+
+def get_trade_type(symbol: str) -> str:
+    """Return the trade type for a held position ('trend' default)."""
+    return _load().get(symbol, {}).get("trade_type", "trend")
+
+
+def get_max_hold_days(trade_type: str) -> int:
+    """Return max holding period in trading days for a trade type."""
+    return _MAX_HOLD_BY_TYPE.get(trade_type, MAX_HOLD_DAYS)
 
 
 def update_peak(symbol: str, current_price: float,

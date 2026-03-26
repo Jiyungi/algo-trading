@@ -18,16 +18,23 @@ Signal stack (each +1 / -1 / 0, regime-aware):
 
 Entry: score >= +3 AND has_catalyst (gap >2% or volume spike)
 
+Trade types (classified at entry, stored in state):
+  trend          -- hold up to 7 days, 7% trail stop, +18% take-profit
+  mean_reversion -- hold up to 4 days, 5% trail stop, +10% take-profit
+  catalyst       -- hold up to 1 day, allow same-day exit
+
 Exit (in priority order):
-  1. Time-based   -- sell 100% after MAX_HOLD_DAYS trading days
-  2. Trailing stop -- sell 100% if price drops 7% below peak
-  3. Tranche      -- sell 50% at +18% gain (let winners run longer)
-  4. Signal exit  -- sell 100% if score <= -3
+  1. Time-based   -- sell 100% after type-specific max holding days
+  2. Trailing stop -- sell 100% if price drops below type-specific trail
+  3. Weak momentum -- exit flat trades below EMA5
+  4. Tranche      -- sell 50% at type-specific take-profit
+  5. Signal exit  -- sell 100% if score <= -3
 """
 import logging
 import os
 import sys
 from datetime import datetime
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -36,11 +43,13 @@ from orders import place_order  # noqa: E402
 from safety import (  # noqa: E402
     portfolio_health_check,
     pre_trade_check,
+    exposure_check,
     market_is_open,
     MAX_NEW_POSITIONS,
 )
 from signals import (  # noqa: E402
     compute_score,
+    classify_trade_type,
     detect_regime,
     ema,
     has_catalyst,
@@ -60,10 +69,11 @@ from position_state import (  # noqa: E402
     update_peak,
     get_tranches,
     get_days_held,
+    get_trade_type,
+    get_max_hold_days,
     mark_tranche,
     clear_state,
     cleanup_closed,
-    MAX_HOLD_DAYS,
 )
 from portfolio_risk import (  # noqa: E402
     correlation_filter,
@@ -71,6 +81,12 @@ from portfolio_risk import (  # noqa: E402
     volatility_adjusted_qty,
     log_portfolio_metrics,
 )
+from sector import sector_check, get_sector  # noqa: E402
+from sentiment import (  # noqa: E402
+    get_sentiment_filter,
+    clear_cache as clear_sentiment_cache,
+)
+from intraday_sleeve import SLEEVE_PCT  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -96,6 +112,8 @@ def run():
     )
     logger.info("=" * 60)
 
+    clear_sentiment_cache()
+
     # 1. Market hours guard
     if not market_is_open():
         logger.warning("Market is closed — exiting.")
@@ -104,7 +122,9 @@ def run():
     # 2. Fetch account state (2 Alpaca API calls)
     account = trading_client.get_account()
     positions = trading_client.get_all_positions()
-    portfolio_value = float(account.portfolio_value)
+    portfolio_value_raw = float(account.portfolio_value)
+    # Reserve capital for the intraday sleeve
+    portfolio_value = portfolio_value_raw * (1 - SLEEVE_PCT)
     held = {p.symbol: p for p in positions}
 
     # 3. Portfolio health gate
@@ -149,18 +169,30 @@ def run():
         ensure_initialized(sym, price, entry, pl_pct)
 
         peak = update_peak(sym, price, entry_price=entry)
-        # Tighten trailing stop to 5% once position is up >= 10%
-        trail_pct = 0.05 if pl_pct >= 10.0 else TRAIL_PCT
+        ttype = get_trade_type(sym)
+        max_days = get_max_hold_days(ttype)
+
+        # Type-aware trailing stop: mean-rev starts tighter (5%)
+        if ttype == "mean_reversion":
+            trail_pct = 0.05
+        elif pl_pct >= 10.0:
+            trail_pct = 0.05  # tighten once up >= 10%
+        else:
+            trail_pct = TRAIL_PCT
         trail_stop_price = peak * (1 - trail_pct)
+
+        # Type-aware take-profit: mean-rev takes profit earlier
+        tp_threshold = 10.0 if ttype == "mean_reversion" else TAKE_PROFIT
+
         tranches = get_tranches(sym)
         days_held = get_days_held(sym)
 
         # ── Priority 1: Time-based exit ──────────────────────────────────
         # Frees capital from slow trades; critical for 1-month horizon.
-        if days_held >= MAX_HOLD_DAYS:
+        if days_held >= max_days:
             logger.info(
-                "TIME EXIT   | %s | %d days | P&L: %+.1f%%",
-                sym, days_held, pl_pct,
+                "TIME EXIT   | %s | %d/%d days | type=%s | P&L: %+.1f%%",
+                sym, days_held, max_days, ttype, pl_pct,
             )
             place_order(sym, qty, side="sell")
             log_trade(sym, "sell", qty, price,
@@ -201,8 +233,8 @@ def run():
                 exited.add(sym)
                 continue
 
-        # ── Priority 4: Single take-profit tranche at +18% ───────────────
-        if pl_pct >= TAKE_PROFIT and tranches < 1:
+        # ── Priority 4: Single take-profit tranche ─────────────────────────
+        if pl_pct >= tp_threshold and tranches < 1:
             sell_qty = max(1, int(qty * 0.50))
             logger.info(
                 "TAKE PROFIT | %s | +%.1f%% | selling %d of %d shares",
@@ -231,9 +263,9 @@ def run():
             else:
                 logger.info(
                     "HOLD        | %s | score=%+d | P&L: %+.1f%% "
-                    "| day %d/%d | trail $%.2f",
-                    sym, score, pl_pct, days_held, MAX_HOLD_DAYS,
-                    trail_stop_price,
+                    "| day %d/%d | type=%s | trail $%.2f",
+                    sym, score, pl_pct, days_held, max_days,
+                    ttype, trail_stop_price,
                 )
 
     cleanup_closed(set(held.keys()) - exited)
@@ -275,14 +307,14 @@ def run():
                 "SCAN        | %s | score=%+d | $%.2f | catalyst=%s",
                 sym, effective_score, price, catalyst,
             )
-            candidates.append((sym, effective_score, price))
+            candidates.append((sym, effective_score, price, catalyst))
         # Secondary entry: momentum continuation
         elif score >= 2 and momentum_continuation(df["close"]):
             logger.info(
                 "MOMENTUM    | %s | score=%+d | $%.2f | continuation",
                 sym, score, price,
             )
-            candidates.append((sym, score, price))
+            candidates.append((sym, score, price, False))
 
     candidates.sort(key=lambda x: x[1], reverse=True)
     candidates = correlation_filter(candidates, still_held, bars)
@@ -291,33 +323,92 @@ def run():
     )
 
     new_buys = 0
-    for sym, score, price in candidates:
+    deployed_this_run = 0.0  # cumulative $ committed to new buys this run
+    mean_rev_this_run = {}   # {sector: count} for mean-rev limit
+    planned_positions = list(positions)
+
+    for sym, score, price, has_cat in candidates:
         if new_buys >= MAX_NEW_POSITIONS:
             logger.info("MAX_NEW_POSITIONS reached — done for today.")
             break
 
-        ok, reason = concentration_check(sym, positions, portfolio_value)
+        ok, reason = concentration_check(
+            sym, planned_positions, portfolio_value,
+        )
         if not ok:
             logger.warning("CONCENTRATION | %s", reason)
             continue
         logger.info("CONCENTRATION | %s | %s", sym, reason)
 
+        # Classify trade type early (needed for sector check)
+        ttype = classify_trade_type(
+            bars.get(sym), score, regime, catalyst=has_cat,
+        ) if sym in bars else "trend"
+
+        # Sector exposure gate
+        ok, reason = sector_check(
+            sym, ttype, planned_positions, portfolio_value,
+            mean_rev_this_run,
+        )
+        if not ok:
+            logger.warning("SECTOR      | %s | %s", sym, reason)
+            continue
+        logger.info("SECTOR      | %s | %s", sym, reason)
+
+        # Sentiment filter (modifier, not standalone signal)
+        sent_action, sent_score = get_sentiment_filter(sym, ttype)
+        if sent_action == "block":
+            logger.info(
+                "SENT BLOCK  | %s | score=%.2f | type=%s",
+                sym, sent_score, ttype,
+            )
+            continue
+        if sent_action == "boost":
+            score += 1
+            logger.info(
+                "SENT BOOST  | %s | score=%.2f | type=%s",
+                sym, sent_score, ttype,
+            )
+
         # Conviction-weighted, volatility-adjusted sizing
-        qty = volatility_adjusted_qty(sym, bars, portfolio_value, score=score)
+        qty = volatility_adjusted_qty(
+            sym, bars, portfolio_value, score=score,
+        )
         ok, reason = pre_trade_check(sym, qty, price, portfolio_value)
         if not ok:
             logger.warning("Pre-trade failed | %s: %s", sym, reason)
             continue
 
+        ok, reason = exposure_check(
+            sym, qty, price, portfolio_value, deployed_this_run,
+        )
+        if not ok:
+            logger.warning("EXPOSURE CAP | %s | %s", sym, reason)
+            break  # no point checking more — cap is hit for this run
+        logger.info("EXPOSURE    | %s | %s", sym, reason)
+
         logger.info(
-            "BUY         | %s | score=%+d | qty=%d | $%.2f | %s regime",
-            sym, score, qty, price, regime,
+            "BUY         | %s | score=%+d | qty=%d | $%.2f "
+            "| %s regime | type=%s",
+            sym, score, qty, price, regime, ttype,
         )
         place_order(sym, qty, side="buy")
         log_trade(sym, "buy", qty, price,
-                  f"signal_entry(score={score},regime={regime})")
-        init_state(sym, price)
+                  f"signal_entry(score={score},regime={regime}"
+                  f",type={ttype})")
+        init_state(sym, price, trade_type=ttype)
+        deployed_this_run += qty * price
+        planned_positions.append(
+            SimpleNamespace(symbol=sym, market_value=qty * price)
+        )
         new_buys += 1
+
+        # Track mean-rev entries per sector
+        if ttype == "mean_reversion":
+            sector = get_sector(sym)
+            mean_rev_this_run[sector] = (
+                mean_rev_this_run.get(sector, 0) + 1
+            )
 
     if not candidates:
         logger.info(

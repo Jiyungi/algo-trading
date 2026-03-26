@@ -9,6 +9,11 @@ Bonuses applied inside compute_score():
   +1 trend alignment (EMA and MACD both bullish)
 Bonuses applied in strategy.py:
   +1 catalyst (gap >2% or volume spike)
+
+Trade type classification:
+  "trend"          -- EMA + MACD aligned, hold up to 7 days
+  "mean_reversion" -- RSI-based oversold bounce, shorter leash (2-4 days)
+  "catalyst"       -- gap/volume event-driven, allow same-day exit
 """
 import numpy as np
 import pandas as pd
@@ -211,3 +216,49 @@ def compute_score(closes: pd.Series, volumes: pd.Series,
     if ma == 1 and mc == 1:
         score += 1  # trend alignment bonus
     return score
+
+
+# ── Trade type classification ────────────────────────────────────────────────
+
+TRADE_TYPE_TREND = "trend"
+TRADE_TYPE_MEAN_REV = "mean_reversion"
+TRADE_TYPE_CATALYST = "catalyst"
+
+
+def classify_trade_type(
+    df, score: int, regime: str, catalyst: bool,
+) -> str:
+    """Classify an entry into trend, mean_reversion, or catalyst.
+
+    Rules (checked in order):
+      1. catalyst  -- gap >3% OR volume >2x 20-day avg
+      2. mean_rev  -- regime is mean-reversion AND RSI(7) < 35
+      3. trend     -- default for all other entries
+    """
+    if len(df) < 22:
+        return TRADE_TYPE_TREND
+
+    # Strong catalyst: large gap or extreme volume spike
+    prev_close = df["close"].iloc[-2]
+    today_open = df["open"].iloc[-1]
+    if prev_close > 0:
+        gap_pct = abs((today_open - prev_close) / prev_close)
+        if gap_pct >= 0.03:
+            return TRADE_TYPE_CATALYST
+
+    avg_vol = df["volume"].iloc[-21:-1].mean()
+    if avg_vol > 0 and df["volume"].iloc[-1] > avg_vol * 2.0:
+        return TRADE_TYPE_CATALYST
+
+    # Mean-reversion: regime is mean-rev AND RSI oversold
+    if regime == REGIME_MEAN_REV:
+        closes = df["close"]
+        delta = closes.diff()
+        gain = delta.clip(lower=0).rolling(7).mean()
+        loss = (-delta.clip(upper=0)).rolling(7).mean()
+        rs = gain / loss.replace(0, np.nan)
+        rsi = (100 - (100 / (1 + rs))).iloc[-1]
+        if not pd.isna(rsi) and rsi < 35:
+            return TRADE_TYPE_MEAN_REV
+
+    return TRADE_TYPE_TREND

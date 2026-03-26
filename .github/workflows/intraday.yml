@@ -1,23 +1,25 @@
-name: Auto Strategy
+name: Intraday Check
 
 on:
   schedule:
-    # 9:35 AM ET (14:35 UTC) — just after market open.
-    - cron: '35 14 * * 1-5'
-    # 1:00 PM ET (18:00 UTC) — early afternoon check.
-    - cron: '0 18 * * 1-5'
-  workflow_dispatch: {}   # allow manual trigger from GitHub UI
+    # 10:00 AM ET (15:00 UTC) — opening range formed, scan gaps + check exits
+    - cron: '0 15 * * 1-5'
+    # 12:00 PM ET (17:00 UTC) — midday exit check
+    - cron: '0 17 * * 1-5'
+    # 2:30 PM ET (19:30 UTC) — late-day check + close intraday positions
+    - cron: '30 19 * * 1-5'
+  workflow_dispatch: {}   # allow manual trigger
 
 permissions:
-  contents: write   # needed to commit trade_log.csv and cooldowns.json back
+  contents: write
 
 jobs:
-  trade:
+  intraday:
     runs-on: ubuntu-latest
     env:
       ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
       ALPACA_SECRET: ${{ secrets.ALPACA_SECRET }}
-      DRY_RUN: "0"   # change to "0" when ready for paper trading
+      DRY_RUN: "0"
 
     steps:
       - uses: actions/checkout@v4
@@ -30,13 +32,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run strategy
-        run: python src/strategy.py
+      - name: Run intraday exit checks (held positions)
+        run: python src/intraday_strategy.py
 
-      # Commit trade log and cooldowns back to the repo so the next run
-      # can read them. [skip ci] prevents this commit from re-triggering
-      # the workflow.
-      - name: Save trade log
+      - name: Run intraday sleeve (gap trades)
+        run: python src/intraday_sleeve.py
+
+      - name: Save state files
         if: always()
         run: |
           git config user.name  "github-actions[bot]"
