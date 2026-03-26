@@ -1,8 +1,4 @@
 {
-  "BND": {
-    "peak_price": 74.862,
-    "tranches_taken": 0
-  },
   "QQQ": {
     "peak_price": 606.953333,
     "tranches_taken": 0
@@ -17,17 +13,17 @@
     "entry_date": "2026-03-25"
   },
   "MRK": {
-    "peak_price": 119.58000183105469,
+    "peak_price": 119.6089,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
   },
   "COP": {
-    "peak_price": 129.3800048828125,
+    "peak_price": 132.69,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
   },
   "SLB": {
-    "peak_price": 52.21500015258789,
+    "peak_price": 52.38,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
   },
@@ -37,18 +33,23 @@
     "entry_date": "2026-03-25"
   },
   "XOM": {
-    "peak_price": 163.80999755859375,
+    "peak_price": 164.64,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
   },
   "CVX": {
-    "peak_price": 205.79750061035156,
+    "peak_price": 208.49,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
   },
   "EOG": {
-    "peak_price": 142.9499969482422,
+    "peak_price": 147.55,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
+  },
+  "PFE": {
+    "peak_price": 27.6560001373291,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-26"
   }
 }
