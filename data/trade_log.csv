@@ -13,3 +13,5 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-03-26 15:52,BND,sell,10.0,73.30,weak_momentum_exit,-2.09
 2026-03-26 15:52,PFE,buy,85,27.66,"signal_entry(score=3,regime=mean_reversion)",
 2026-03-26 19:10,AMD,sell,7.0,204.37,trailing_stop,-6.01
+2026-03-27 15:52,MS,sell,1.0,160.32,intraday_recovery(vwap=159.25),-3.34
+2026-03-27 15:52,QQQ,sell,3.0,568.78,intraday_recovery(vwap=568.04),-6.29

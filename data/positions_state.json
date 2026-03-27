@@ -1,8 +1,4 @@
 {
-  "QQQ": {
-    "peak_price": 606.953333,
-    "tranches_taken": 0
-  },
   "SPY": {
     "peak_price": 689.104,
     "tranches_taken": 0
@@ -19,11 +15,6 @@
   },
   "SLB": {
     "peak_price": 52.525,
-    "tranches_taken": 0,
-    "entry_date": "2026-03-25"
-  },
-  "MS": {
-    "peak_price": 165.80999755859375,
     "tranches_taken": 0,
     "entry_date": "2026-03-25"
   },
