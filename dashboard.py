@@ -101,7 +101,37 @@ def _get_trade_log(n=100):
 
 
 def _get_portfolio_history():
-    """Combine all portfolio_history_*.csv files into a deduplicated, sorted list."""
+    """Fetch live portfolio history from Alpaca; fall back to CSV files."""
+    try:
+        from config import trading_client
+        from alpaca.trading.requests import GetPortfolioHistoryRequest
+        history = trading_client.get_portfolio_history(
+            GetPortfolioHistoryRequest(period="3M", timeframe="1D")
+        )
+        timestamps = history.timestamp or []
+        equities = history.equity or []
+        profit_losses = history.profit_loss or []
+        pl_pcts = history.profit_loss_pct or []
+        rows_by_date = {}
+        for i, ts in enumerate(timestamps):
+            if not ts:
+                continue
+            day = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+            eq = equities[i] if i < len(equities) else None
+            if eq is None or eq == 0:
+                continue
+            rows_by_date[day] = {
+                "date": day,
+                "equity": float(eq),
+                "pl": float(profit_losses[i]) if i < len(profit_losses) and profit_losses[i] is not None else 0,
+                "pl_pct": float(pl_pcts[i]) if i < len(pl_pcts) and pl_pcts[i] is not None else 0,
+            }
+        if rows_by_date:
+            return sorted(rows_by_date.values(), key=lambda r: r["date"])
+    except Exception:
+        pass
+
+    # Fall back to CSV files
     files = sorted(glob.glob(os.path.join(DATA_DIR, "portfolio_history_*.csv")))
     rows_by_date = {}
     for filepath in files:
@@ -114,8 +144,8 @@ def _get_portfolio_history():
                         rows_by_date[day] = {
                             "date": day,
                             "equity": float(row.get("equity", 0)),
-                            "pl": float(row.get("profit_loss", 0)),
-                            "pl_pct": float(row.get("profit_loss_pct", 0)),
+                            "pl": float(row.get("profitloss", 0)),
+                            "pl_pct": float(row.get("profitloss_pct", 0)),
                         }
         except Exception:
             continue
