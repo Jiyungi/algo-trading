@@ -16,3 +16,5 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-03-27 15:52,MS,sell,1.0,160.32,intraday_recovery(vwap=159.25),-3.34
 2026-03-27 15:52,QQQ,sell,3.0,568.78,intraday_recovery(vwap=568.04),-6.29
 2026-03-27 18:59,PFE,sell,85.0,27.23,weak_momentum_exit,-1.57
+2026-03-30 15:51,MRK,sell,17.0,118.03,weak_momentum_exit,-1.35
+2026-03-30 15:51,PFE,buy,72,27.48,"signal_entry(score=3,regime=mean_reversion,type=trend)",

@@ -1,10 +1,4 @@
 {
-  "MRK": {
-    "peak_price": 120.22,
-    "tranches_taken": 0,
-    "entry_date": "2026-03-25",
-    "trade_type": "trend"
-  },
   "COP": {
     "peak_price": 134.55,
     "tranches_taken": 0,
@@ -18,21 +12,27 @@
     "trade_type": "trend"
   },
   "XOM": {
-    "peak_price": 170.76,
+    "peak_price": 174.13,
     "tranches_taken": 0,
     "entry_date": "2026-03-25",
     "trade_type": "trend"
   },
   "CVX": {
-    "peak_price": 211.75,
+    "peak_price": 213.5,
     "tranches_taken": 0,
     "entry_date": "2026-03-25",
     "trade_type": "trend"
   },
   "EOG": {
-    "peak_price": 149.12,
+    "peak_price": 150.67,
     "tranches_taken": 0,
     "entry_date": "2026-03-25",
+    "trade_type": "trend"
+  },
+  "PFE": {
+    "peak_price": 27.479999542236328,
+    "tranches_taken": 0,
+    "entry_date": "2026-03-30",
     "trade_type": "trend"
   }
 }
