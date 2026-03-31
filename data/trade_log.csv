@@ -18,3 +18,8 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-03-27 18:59,PFE,sell,85.0,27.23,weak_momentum_exit,-1.57
 2026-03-30 15:51,MRK,sell,17.0,118.03,weak_momentum_exit,-1.35
 2026-03-30 15:51,PFE,buy,72,27.48,"signal_entry(score=3,regime=mean_reversion,type=trend)",
+2026-03-31 15:47,COP,sell,13.0,134.84,time_exit(4d),4.27
+2026-03-31 15:47,CVX,sell,1.0,212.15,time_exit(4d),3.07
+2026-03-31 15:47,EOG,sell,1.0,150.09,time_exit(4d),4.98
+2026-03-31 15:47,SLB,sell,25.0,52.55,time_exit(4d),0.66
+2026-03-31 15:47,XOM,sell,1.0,173.67,time_exit(4d),6.01

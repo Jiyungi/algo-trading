@@ -1,41 +1,6 @@
 {
-  "COP": {
-    "peak_price": 134.55,
-    "tranches_taken": 0,
-    "add_tranches_taken": 0,
-    "entry_date": "2026-03-25",
-    "trade_type": "trend"
-  },
-  "SLB": {
-    "peak_price": 53.36,
-    "tranches_taken": 0,
-    "add_tranches_taken": 0,
-    "entry_date": "2026-03-25",
-    "trade_type": "trend"
-  },
-  "XOM": {
-    "peak_price": 174.13,
-    "tranches_taken": 0,
-    "add_tranches_taken": 0,
-    "entry_date": "2026-03-25",
-    "trade_type": "trend"
-  },
-  "CVX": {
-    "peak_price": 213.5,
-    "tranches_taken": 0,
-    "add_tranches_taken": 0,
-    "entry_date": "2026-03-25",
-    "trade_type": "trend"
-  },
-  "EOG": {
-    "peak_price": 150.67,
-    "tranches_taken": 0,
-    "add_tranches_taken": 0,
-    "entry_date": "2026-03-25",
-    "trade_type": "trend"
-  },
   "PFE": {
-    "peak_price": 27.64,
+    "peak_price": 27.855,
     "tranches_taken": 0,
     "add_tranches_taken": 0,
     "entry_date": "2026-03-30",
