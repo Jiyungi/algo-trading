@@ -175,11 +175,14 @@ def run():
         ttype = get_trade_type(sym)
         max_days = get_max_hold_days(ttype)
 
-        # Trailing stop: tighten to 2% once clearly in profit (>= 5%)
-        if pl_pct >= 5.0:
-            trail_pct = 0.02  # lock in gains once up >= 5%
+        # Trailing stop: tighten monotonically once peak ever reached +5% above entry.
+        # Keyed off peak gain (not current P&L) so a retracing winner never gets a
+        # looser stop — the tightening is one-way.
+        peak_gain_pct = (peak - entry) / entry * 100 if entry > 0 else 0.0
+        if peak_gain_pct >= 5.0:
+            trail_pct = 0.02  # locked in — never loosens once profit zone reached
         else:
-            trail_pct = TRAIL_PCT  # 3% for all trade types
+            trail_pct = TRAIL_PCT  # 3% before profit zone
         trail_stop_price = peak * (1 - trail_pct)
 
         # Take-profit threshold is the same for all types (5%)
@@ -271,9 +274,9 @@ def run():
                 )
 
                 # ── Priority 6: Add-to-winner (pyramid) ──────────────────
-                # If position is in profit, momentum continues, and we
-                # haven't added yet — buy 50% more to ride the move.
-                if (
+                # Gated behind circuit_ok so a loss-heavy regime that has
+                # disabled new buys cannot still increase exposure here.
+                if circuit_ok and (
                     pl_pct >= 2.0
                     and days_held <= 3
                     and tranches < 1
@@ -284,16 +287,25 @@ def run():
                     add_qty = max(1, int(qty * 0.50))
                     current_mv = float(pos.market_value)
                     if (current_mv + add_qty * price) / portfolio_value <= 0.10:
-                        logger.info(
-                            "ADD TRANCHE | %s | P&L=+%.1f%% | score=%+d"
-                            " | adding %d shares",
-                            sym, pl_pct, score, add_qty,
+                        ok_pt, reason_pt = pre_trade_check(
+                            sym, add_qty, price, portfolio_value,
                         )
-                        place_order(sym, add_qty, side="buy")
-                        log_trade(sym, "buy", add_qty, price,
-                                  f"add_to_winner(score={score}"
-                                  f",pl={pl_pct:.1f}%)")
-                        mark_add_tranche(sym)
+                        if not ok_pt:
+                            logger.warning(
+                                "ADD BLOCKED | %s | pre-trade: %s",
+                                sym, reason_pt,
+                            )
+                        else:
+                            logger.info(
+                                "ADD TRANCHE | %s | P&L=+%.1f%% | score=%+d"
+                                " | adding %d shares",
+                                sym, pl_pct, score, add_qty,
+                            )
+                            place_order(sym, add_qty, side="buy")
+                            log_trade(sym, "buy", add_qty, price,
+                                      f"add_to_winner(score={score}"
+                                      f",pl={pl_pct:.1f}%)")
+                            mark_add_tranche(sym)
 
     cleanup_closed(set(held.keys()) - exited)
 

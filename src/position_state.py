@@ -98,20 +98,22 @@ def ensure_initialized(
     window rather than immediately triggering a time-based exit.
     """
     state = _load()
-    tranches = 1 if pl_pct >= 5.0 else 0
 
     if symbol not in state:
+        # Always start with tranches=0 — never assume profit was already taken.
+        # Auto-setting tranches=1 on bootstrap suppresses take-profit on gains
+        # that were never actually harvested.
         state[symbol] = {
             "peak_price": current_price,
-            "tranches_taken": tranches,
+            "tranches_taken": 0,
             "add_tranches_taken": 0,
             "entry_date": date.today().isoformat(),
             "trade_type": "trend",  # safe default for bootstrapped positions
         }
         _save(state)
         logger.info(
-            "Bootstrap: %s | pl=%.1f%% | tranches=%d | peak=$%.2f",
-            symbol, pl_pct, tranches, current_price,
+            "Bootstrap: %s | pl=%.1f%% | tranches=0 | peak=$%.2f",
+            symbol, pl_pct, current_price,
         )
         return
 
