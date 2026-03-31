@@ -1,9 +1,30 @@
 {
   "PFE": {
-    "peak_price": 27.855,
+    "peak_price": 27.925,
     "tranches_taken": 0,
     "add_tranches_taken": 0,
     "entry_date": "2026-03-30",
+    "trade_type": "trend"
+  },
+  "CVX": {
+    "peak_price": 205.14500427246094,
+    "tranches_taken": 0,
+    "add_tranches_taken": 0,
+    "entry_date": "2026-03-31",
+    "trade_type": "trend"
+  },
+  "COP": {
+    "peak_price": 130.83009338378906,
+    "tranches_taken": 0,
+    "add_tranches_taken": 0,
+    "entry_date": "2026-03-31",
+    "trade_type": "trend"
+  },
+  "XLE": {
+    "peak_price": 60.8849983215332,
+    "tranches_taken": 0,
+    "add_tranches_taken": 0,
+    "entry_date": "2026-03-31",
     "trade_type": "trend"
   }
 }

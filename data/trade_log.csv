@@ -23,3 +23,6 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-03-31 15:47,EOG,sell,1.0,150.09,time_exit(4d),4.98
 2026-03-31 15:47,SLB,sell,25.0,52.55,time_exit(4d),0.66
 2026-03-31 15:47,XOM,sell,1.0,173.67,time_exit(4d),6.01
+2026-03-31 19:05,CVX,buy,9,205.15,"signal_entry(score=3,regime=mean_reversion,type=trend)",
+2026-03-31 19:05,COP,buy,11,130.83,"signal_entry(score=3,regime=mean_reversion,type=trend)",
+2026-03-31 19:05,XLE,buy,35,60.88,"signal_entry(score=3,regime=mean_reversion,type=trend)",
