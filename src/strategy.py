@@ -19,16 +19,17 @@ Signal stack (each +1 / -1 / 0, regime-aware):
 Entry: score >= +3 AND has_catalyst (gap >2% or volume spike)
 
 Trade types (classified at entry, stored in state):
-  trend          -- hold up to 7 days, 7% trail stop, +18% take-profit
-  mean_reversion -- hold up to 4 days, 5% trail stop, +10% take-profit
+  trend          -- hold up to 4 days, 3% trail stop, +5% take-profit
+  mean_reversion -- hold up to 3 days, 3% trail stop, +5% take-profit
   catalyst       -- hold up to 1 day, allow same-day exit
 
 Exit (in priority order):
   1. Time-based   -- sell 100% after type-specific max holding days
-  2. Trailing stop -- sell 100% if price drops below type-specific trail
-  3. Weak momentum -- exit flat trades below EMA5
-  4. Tranche      -- sell 50% at type-specific take-profit
+  2. Trailing stop -- sell 100% if price drops 3% from peak (2% once P&L >= 5%)
+  3. Weak momentum -- exit trades below EMA5 when P&L between -3% and +5%
+  4. Tranche      -- sell 50% at +5% take-profit
   5. Signal exit  -- sell 100% if score <= -3
+  6. Add-to-winner -- buy 50% more if P&L >= 2%, score >= 2, days <= 3 (once)
 """
 import logging
 import os
@@ -74,6 +75,8 @@ from position_state import (  # noqa: E402
     mark_tranche,
     clear_state,
     cleanup_closed,
+    get_add_tranches,
+    mark_add_tranche,
 )
 from portfolio_risk import (  # noqa: E402
     correlation_filter,
@@ -99,8 +102,8 @@ BUY_THRESHOLD = 3    # need 3+ signals to buy
 SELL_THRESHOLD = -3  # signal exit threshold
 
 # Exit parameters
-TRAIL_PCT = 0.07      # trailing stop: 7% drop from peak sells everything
-TAKE_PROFIT = 18.0    # single tranche: sell 50% at +18%
+TRAIL_PCT = 0.03      # trailing stop: 3% drop from peak sells everything
+TAKE_PROFIT = 5.0     # single tranche: sell 50% at +5%
 
 
 def run():
@@ -172,17 +175,15 @@ def run():
         ttype = get_trade_type(sym)
         max_days = get_max_hold_days(ttype)
 
-        # Type-aware trailing stop: mean-rev starts tighter (5%)
-        if ttype == "mean_reversion":
-            trail_pct = 0.05
-        elif pl_pct >= 10.0:
-            trail_pct = 0.05  # tighten once up >= 10%
+        # Trailing stop: tighten to 2% once clearly in profit (>= 5%)
+        if pl_pct >= 5.0:
+            trail_pct = 0.02  # lock in gains once up >= 5%
         else:
-            trail_pct = TRAIL_PCT
+            trail_pct = TRAIL_PCT  # 3% for all trade types
         trail_stop_price = peak * (1 - trail_pct)
 
-        # Type-aware take-profit: mean-rev takes profit earlier
-        tp_threshold = 10.0 if ttype == "mean_reversion" else TAKE_PROFIT
+        # Take-profit threshold is the same for all types (5%)
+        tp_threshold = TAKE_PROFIT
 
         tranches = get_tranches(sym)
         days_held = get_days_held(sym)
@@ -219,7 +220,7 @@ def run():
         # ── Priority 3: Early weak-momentum exit ─────────────────────────
         # Exit flat trades where price has slipped below EMA(5).
         # Avoids tying up capital in stagnant positions.
-        if sym in bars and -3.0 <= pl_pct <= 3.0:
+        if sym in bars and -3.0 <= pl_pct <= 5.0:
             ema5 = ema(bars[sym]["close"], 5)
             if price < ema5:
                 logger.info(
@@ -230,6 +231,7 @@ def run():
                 log_trade(sym, "sell", qty, price,
                           "weak_momentum_exit", pl_pct)
                 clear_state(sym)
+                add_cooldown(sym, days=2, stop_price=price)
                 exited.add(sym)
                 continue
 
@@ -267,6 +269,31 @@ def run():
                     sym, score, pl_pct, days_held, max_days,
                     ttype, trail_stop_price,
                 )
+
+                # ── Priority 6: Add-to-winner (pyramid) ──────────────────
+                # If position is in profit, momentum continues, and we
+                # haven't added yet — buy 50% more to ride the move.
+                if (
+                    pl_pct >= 2.0
+                    and days_held <= 3
+                    and tranches < 1
+                    and get_add_tranches(sym) < 1
+                    and score >= 2
+                    and momentum_continuation(df["close"])
+                ):
+                    add_qty = max(1, int(qty * 0.50))
+                    current_mv = float(pos.market_value)
+                    if (current_mv + add_qty * price) / portfolio_value <= 0.10:
+                        logger.info(
+                            "ADD TRANCHE | %s | P&L=+%.1f%% | score=%+d"
+                            " | adding %d shares",
+                            sym, pl_pct, score, add_qty,
+                        )
+                        place_order(sym, add_qty, side="buy")
+                        log_trade(sym, "buy", add_qty, price,
+                                  f"add_to_winner(score={score}"
+                                  f",pl={pl_pct:.1f}%)")
+                        mark_add_tranche(sym)
 
     cleanup_closed(set(held.keys()) - exited)
 

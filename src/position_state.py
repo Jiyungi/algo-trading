@@ -20,12 +20,12 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 STATE_PATH = os.path.join(DATA_DIR, "positions_state.json")
 
-MAX_HOLD_DAYS = 7   # force exit after this many trading days
+MAX_HOLD_DAYS = 4   # force exit after this many trading days
 
 # Per-type max holding periods (trading days)
 _MAX_HOLD_BY_TYPE = {
-    "trend": 7,
-    "mean_reversion": 4,
+    "trend": 4,
+    "mean_reversion": 3,
     "catalyst": 1,
 }
 
@@ -69,6 +69,7 @@ def init_state(symbol: str, entry_price: float,
     state[symbol] = {
         "peak_price": entry_price,
         "tranches_taken": 0,
+        "add_tranches_taken": 0,
         "entry_date": date.today().isoformat(),
         "trade_type": trade_type,
     }
@@ -97,12 +98,13 @@ def ensure_initialized(
     window rather than immediately triggering a time-based exit.
     """
     state = _load()
-    tranches = 1 if pl_pct >= 18.0 else 0
+    tranches = 1 if pl_pct >= 5.0 else 0
 
     if symbol not in state:
         state[symbol] = {
             "peak_price": current_price,
             "tranches_taken": tranches,
+            "add_tranches_taken": 0,
             "entry_date": date.today().isoformat(),
             "trade_type": "trend",  # safe default for bootstrapped positions
         }
@@ -198,6 +200,25 @@ def clear_state(symbol: str):
     """Remove a symbol's state when the position is fully closed."""
     state = _load()
     state.pop(symbol, None)
+    _save(state)
+
+
+def get_add_tranches(symbol: str) -> int:
+    """Return how many add-to-winner tranches have been bought (0 or 1)."""
+    return _load().get(symbol, {}).get("add_tranches_taken", 0)
+
+
+def mark_add_tranche(symbol: str):
+    """Record that one add-to-winner tranche has been bought."""
+    state = _load()
+    if symbol not in state:
+        state[symbol] = {
+            "peak_price": 0,
+            "add_tranches_taken": 1,
+            "entry_date": date.today().isoformat(),
+        }
+    else:
+        state[symbol]["add_tranches_taken"] = 1
     _save(state)
 
 
