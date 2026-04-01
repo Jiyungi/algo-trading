@@ -34,3 +34,6 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-04-01 15:54,MS,buy,23,167.52,"signal_entry(score=5,regime=mean_reversion,type=trend)",
 2026-04-01 15:54,JPM,buy,11,297.23,"signal_entry(score=4,regime=mean_reversion,type=trend)",
 2026-04-01 15:54,CAT,buy,3,734.17,"signal_entry(score=4,regime=mean_reversion,type=trend)",
+2026-04-01 19:05,LLY,buy,1,960.19,"signal_entry(score=3,regime=mean_reversion,type=trend)",
+2026-04-01 19:05,XOM,buy,10,161.30,"signal_entry(score=3,regime=mean_reversion,type=trend)",
+2026-04-01 19:05,SLB,buy,22,49.95,"signal_entry(score=3,regime=mean_reversion,type=trend)",

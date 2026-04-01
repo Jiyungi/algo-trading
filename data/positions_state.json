@@ -1,6 +1,6 @@
 {
   "PFE": {
-    "peak_price": 28.2597,
+    "peak_price": 28.555,
     "tranches_taken": 0,
     "add_tranches_taken": 1,
     "entry_date": "2026-03-30",
@@ -29,6 +29,27 @@
   },
   "CAT": {
     "peak_price": 734.1699829101562,
+    "tranches_taken": 0,
+    "add_tranches_taken": 0,
+    "entry_date": "2026-04-01",
+    "trade_type": "trend"
+  },
+  "LLY": {
+    "peak_price": 960.1900024414062,
+    "tranches_taken": 0,
+    "add_tranches_taken": 0,
+    "entry_date": "2026-04-01",
+    "trade_type": "trend"
+  },
+  "XOM": {
+    "peak_price": 161.3000030517578,
+    "tranches_taken": 0,
+    "add_tranches_taken": 0,
+    "entry_date": "2026-04-01",
+    "trade_type": "trend"
+  },
+  "SLB": {
+    "peak_price": 49.95000076293945,
     "tranches_taken": 0,
     "add_tranches_taken": 0,
     "entry_date": "2026-04-01",
