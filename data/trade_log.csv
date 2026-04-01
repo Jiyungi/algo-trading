@@ -26,3 +26,11 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-03-31 19:05,CVX,buy,9,205.15,"signal_entry(score=3,regime=mean_reversion,type=trend)",
 2026-03-31 19:05,COP,buy,11,130.83,"signal_entry(score=3,regime=mean_reversion,type=trend)",
 2026-03-31 19:05,XLE,buy,35,60.88,"signal_entry(score=3,regime=mean_reversion,type=trend)",
+2026-04-01 15:54,COP,sell,11.0,127.63,weak_momentum_exit,-2.51
+2026-04-01 15:54,CVX,sell,9.0,197.41,trailing_stop,-3.79
+2026-04-01 15:54,PFE,buy,36,28.26,"add_to_winner(score=2,pl=2.8%)",
+2026-04-01 15:54,XLE,sell,35.0,58.90,trailing_stop,-3.26
+2026-04-01 15:54,AMD,buy,9,212.49,"signal_entry(score=5,regime=mean_reversion,type=trend)",
+2026-04-01 15:54,MS,buy,23,167.52,"signal_entry(score=5,regime=mean_reversion,type=trend)",
+2026-04-01 15:54,JPM,buy,11,297.23,"signal_entry(score=4,regime=mean_reversion,type=trend)",
+2026-04-01 15:54,CAT,buy,3,734.17,"signal_entry(score=4,regime=mean_reversion,type=trend)",

@@ -1,30 +1,37 @@
 {
   "PFE": {
-    "peak_price": 27.925,
+    "peak_price": 28.2597,
     "tranches_taken": 0,
-    "add_tranches_taken": 0,
+    "add_tranches_taken": 1,
     "entry_date": "2026-03-30",
     "trade_type": "trend"
   },
-  "CVX": {
-    "peak_price": 205.14500427246094,
+  "AMD": {
+    "peak_price": 212.4949951171875,
     "tranches_taken": 0,
     "add_tranches_taken": 0,
-    "entry_date": "2026-03-31",
+    "entry_date": "2026-04-01",
     "trade_type": "trend"
   },
-  "COP": {
-    "peak_price": 130.83009338378906,
+  "MS": {
+    "peak_price": 167.52000427246094,
     "tranches_taken": 0,
     "add_tranches_taken": 0,
-    "entry_date": "2026-03-31",
+    "entry_date": "2026-04-01",
     "trade_type": "trend"
   },
-  "XLE": {
-    "peak_price": 60.8849983215332,
+  "JPM": {
+    "peak_price": 297.2349853515625,
     "tranches_taken": 0,
     "add_tranches_taken": 0,
-    "entry_date": "2026-03-31",
+    "entry_date": "2026-04-01",
+    "trade_type": "trend"
+  },
+  "CAT": {
+    "peak_price": 734.1699829101562,
+    "tranches_taken": 0,
+    "add_tranches_taken": 0,
+    "entry_date": "2026-04-01",
     "trade_type": "trend"
   }
 }
