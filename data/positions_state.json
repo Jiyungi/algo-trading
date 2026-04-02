@@ -7,7 +7,7 @@
     "trade_type": "trend"
   },
   "AMD": {
-    "peak_price": 214.285,
+    "peak_price": 215.94,
     "tranches_taken": 0,
     "add_tranches_taken": 0,
     "entry_date": "2026-04-01",
@@ -22,13 +22,6 @@
   },
   "JPM": {
     "peak_price": 297.2349853515625,
-    "tranches_taken": 0,
-    "add_tranches_taken": 0,
-    "entry_date": "2026-04-01",
-    "trade_type": "trend"
-  },
-  "CAT": {
-    "peak_price": 734.1699829101562,
     "tranches_taken": 0,
     "add_tranches_taken": 0,
     "entry_date": "2026-04-01",

@@ -40,3 +40,4 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-04-02 15:36,LLY,sell,1.0,939.63,trailing_stop,-2.14
 2026-04-02 15:36,SLB,sell,22.0,49.51,weak_momentum_exit,-0.90
 2026-04-02 15:36,XOM,sell,10.0,159.91,weak_momentum_exit,-0.84
+2026-04-02 19:00,CAT,sell,3.0,718.28,trailing_stop,-2.21
