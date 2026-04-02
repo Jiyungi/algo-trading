@@ -20,6 +20,7 @@ import pandas as pd
 
 REGIME_TREND = "trend"
 REGIME_MEAN_REV = "mean_reversion"
+REGIME_BEAR = "bear"          # SPY below EMA20 AND EMA20 itself declining
 
 
 def _ema(series: pd.Series, span: int) -> pd.Series:
@@ -29,17 +30,26 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
 # ── Regime detection ─────────────────────────────────────────────────────────
 
 def detect_regime(spy_bars: pd.DataFrame, window: int = 20) -> str:
-    """Return REGIME_TREND or REGIME_MEAN_REV based on SPY vs its EMA.
+    """Return REGIME_TREND, REGIME_MEAN_REV, or REGIME_BEAR based on SPY.
 
-    Above 20-day EMA → market is in an uptrend → use momentum logic.
-    Below 20-day EMA → market is choppy/falling → use mean-reversion logic.
-    Defaults to trend if not enough data.
+    Above EMA20                         → uptrend  → momentum logic.
+    Below EMA20 AND EMA20 declining     → sustained downtrend → halt new buys.
+    Below EMA20 AND EMA20 flat/rising   → choppy dip → mean-reversion logic.
+
+    Bear is distinguished from mean-reversion by checking whether the EMA20
+    itself has turned lower over the past 5 sessions — a proxy for a macro
+    downtrend rather than a temporary pullback.
     """
-    if spy_bars is None or len(spy_bars) < window:
+    if spy_bars is None or len(spy_bars) < window + 5:
         return REGIME_TREND
-    ema20 = _ema(spy_bars["close"], window).iloc[-1]
+    ema20 = _ema(spy_bars["close"], window)
     current = spy_bars["close"].iloc[-1]
-    return REGIME_TREND if current > ema20 else REGIME_MEAN_REV
+    if current > ema20.iloc[-1]:
+        return REGIME_TREND
+    # Below EMA20: distinguish sustained downtrend from choppy dip
+    if ema20.iloc[-1] < ema20.iloc[-6]:   # EMA20 lower than 5 sessions ago
+        return REGIME_BEAR
+    return REGIME_MEAN_REV
 
 
 # ── Individual signals ───────────────────────────────────────────────────────
@@ -83,15 +93,15 @@ def rsi_signal(closes: pd.Series, period: int = 7,
     if pd.isna(rsi):
         return 0
 
-    if regime == REGIME_TREND:
-        if rsi > 60:
-            return 1
-        if rsi < 40:
-            return -1
-    else:  # mean_reversion
+    if regime == REGIME_MEAN_REV:
         if rsi < 30:
             return 1
         if rsi > 70:
+            return -1
+    else:  # trend or bear — RSI as momentum confirmation, not contrarian
+        if rsi > 60:
+            return 1
+        if rsi < 40:
             return -1
     return 0
 

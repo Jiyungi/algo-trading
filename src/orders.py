@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 from config import trading_client, DRY_RUN
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.requests import MarketOrderRequest, StopOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 
 import logging
@@ -52,6 +52,48 @@ def place_order(
 
     except Exception as e:
         logger.error("Failed to place order: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
+def place_protective_stop(
+    symbol: str,
+    qty: int,
+    stop_price: float,
+) -> Dict[str, Any]:
+    """Submit a GTC stop-loss order as a hard gap backstop.
+
+    This is a fixed stop (no ratchet) submitted once at entry.
+    It catches overnight gaps that the soft trailing stop in strategy.py
+    cannot protect against with once-daily execution.
+
+    The stop is intentionally set wide (entry * 0.93 = 7% max loss) so it
+    only fires on genuine gap-down events, not intraday noise — the soft
+    2-3% trailing stop handles the normal exit path.
+    """
+    if DRY_RUN:
+        logger.info(
+            "DRY_RUN — not placing protective stop: %s qty=%d stop=$%.2f",
+            symbol, qty, stop_price,
+        )
+        return {"status": "dry_run", "stop_price": stop_price}
+
+    try:
+        order = trading_client.submit_order(
+            StopOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                side=OrderSide.SELL,
+                time_in_force=TimeInForce.GTC,
+                stop_price=round(stop_price, 2),
+            )
+        )
+        logger.info(
+            "Protective stop placed: %s | stop=$%.2f | id=%s",
+            symbol, stop_price, order.id,
+        )
+        return {"status": "placed", "order": order}
+    except Exception as e:
+        logger.error("Failed to place protective stop for %s: %s", symbol, e)
         return {"status": "error", "error": str(e)}
 
 

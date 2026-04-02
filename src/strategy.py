@@ -40,7 +40,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import trading_client, DRY_RUN  # noqa: E402
-from orders import place_order  # noqa: E402
+from orders import place_order, place_protective_stop  # noqa: E402
 from safety import (  # noqa: E402
     portfolio_health_check,
     pre_trade_check,
@@ -55,6 +55,7 @@ from signals import (  # noqa: E402
     ema,
     has_catalyst,
     momentum_continuation,
+    REGIME_BEAR,
 )
 from scanner import fetch_bars_yf, UNIVERSE  # noqa: E402
 from trade_log import (  # noqa: E402
@@ -104,6 +105,14 @@ SELL_THRESHOLD = -3  # signal exit threshold
 # Exit parameters
 TRAIL_PCT = 0.03      # trailing stop: 3% drop from peak sells everything
 TAKE_PROFIT = 5.0     # single tranche: sell 50% at +5%
+
+# Bear-mode parameters (active when regime == REGIME_BEAR)
+# Only GLD clears the bar: gold is a genuine safe-haven in war/tariff risk-off.
+# TLT fails in stagflation; LMT/RTX carry equity beta in tariff-driven sell-offs.
+BEAR_ALLOWED = {"GLD"}
+BEAR_MIN_SCORE = 4          # highest conviction only
+BEAR_MAX_NEW_POSITIONS = 2  # vs MAX_NEW_POSITIONS=4 normally
+BEAR_EXPOSURE_CAP = 0.08    # 8% per run vs 20% normally
 
 
 def run():
@@ -158,7 +167,14 @@ def run():
     # 6. Detect market regime from SPY
     spy_bars = bars.get("SPY")
     regime = detect_regime(spy_bars)
-    logger.info("Regime: %s", regime.upper())
+    bear_halt = regime == REGIME_BEAR
+    if bear_halt:
+        logger.warning(
+            "Regime: BEAR — SPY below declining EMA20. "
+            "Exits only; all new buys halted."
+        )
+    else:
+        logger.info("Regime: %s", regime.upper())
 
     # 7. Check exits on held positions (always runs, even if circuit broken)
     exited = set()
@@ -175,12 +191,16 @@ def run():
         ttype = get_trade_type(sym)
         max_days = get_max_hold_days(ttype)
 
-        # Trailing stop: tighten monotonically once peak ever reached +5% above entry.
-        # Keyed off peak gain (not current P&L) so a retracing winner never gets a
-        # looser stop — the tightening is one-way.
+        # Trailing stop: tighten monotonically once peak ever reached +5%.
+        # Keyed off peak gain (not current P&L) so a retracing winner never
+        # gets a looser stop — the tightening is one-way.
+        # Outside trend regime (mean-rev or bear), cap trail at 2% — in a
+        # risk-off/war-tariff environment gaps blow past 3% overnight.
         peak_gain_pct = (peak - entry) / entry * 100 if entry > 0 else 0.0
         if peak_gain_pct >= 5.0:
-            trail_pct = 0.02  # locked in — never loosens once profit zone reached
+            trail_pct = 0.02  # locked in once profit zone reached
+        elif regime != "trend":
+            trail_pct = 0.02  # tighter in mean-rev / bear
         else:
             trail_pct = TRAIL_PCT  # 3% before profit zone
         trail_stop_price = peak * (1 - trail_pct)
@@ -202,6 +222,10 @@ def run():
             log_trade(sym, "sell", qty, price,
                       f"time_exit({days_held}d)", pl_pct)
             clear_state(sym)
+            # 2-day cooldown: prevents same-session and next-morning re-entry.
+            # is_on_cooldown() uses date >= expiry, so days=1 only blocks
+            # same-calendar-day; days=2 gives a true next-trading-day gate.
+            add_cooldown(sym, days=2, stop_price=price)
             exited.add(sym)
             continue
 
@@ -286,7 +310,8 @@ def run():
                 ):
                     add_qty = max(1, int(qty * 0.50))
                     current_mv = float(pos.market_value)
-                    if (current_mv + add_qty * price) / portfolio_value <= 0.10:
+                    add_mv = current_mv + add_qty * price
+                    if add_mv / portfolio_value <= 0.10:
                         ok_pt, reason_pt = pre_trade_check(
                             sym, add_qty, price, portfolio_value,
                         )
@@ -309,11 +334,21 @@ def run():
 
     cleanup_closed(set(held.keys()) - exited)
 
-    # 8. Scan for buy signals (skipped if circuit breaker triggered)
+    # 8. Scan for buy signals (skipped entirely if circuit breaker triggered)
     if not circuit_ok:
-        logger.warning("Skipping new buys — circuit breaker is active.")
+        logger.warning("Skipping new buys — circuit breaker.")
         logger.info("Done | Exits: %d | Buys: 0", len(exited))
         return
+
+    # Bear mode: restrict to defensive-only with tighter gates
+    run_max_new = BEAR_MAX_NEW_POSITIONS if bear_halt else MAX_NEW_POSITIONS
+    run_exposure_cap = BEAR_EXPOSURE_CAP if bear_halt else MAX_NEW_EXPOSURE_PCT
+    if bear_halt:
+        logger.warning(
+            "Bear regime — buys restricted to %s | "
+            "score>=%d | exposure cap %.0f%%",
+            BEAR_ALLOWED, BEAR_MIN_SCORE, BEAR_EXPOSURE_CAP * 100,
+        )
 
     still_held = set(held.keys()) - exited
     candidates = []
@@ -367,9 +402,20 @@ def run():
     planned_positions = list(positions)
 
     for sym, score, price, has_cat in candidates:
-        if new_buys >= MAX_NEW_POSITIONS:
-            logger.info("MAX_NEW_POSITIONS reached — done for today.")
+        if new_buys >= run_max_new:
+            logger.info("Max new positions reached — done for today.")
             break
+
+        # Bear mode: skip non-defensive symbols and low-conviction scores
+        if bear_halt:
+            if sym not in BEAR_ALLOWED:
+                continue
+            if score < BEAR_MIN_SCORE:
+                logger.info(
+                    "BEAR SKIP   | %s | score=%+d < %d",
+                    sym, score, BEAR_MIN_SCORE,
+                )
+                continue
 
         ok, reason = concentration_check(
             sym, planned_positions, portfolio_value,
@@ -418,6 +464,14 @@ def run():
             logger.warning("Pre-trade failed | %s: %s", sym, reason)
             continue
 
+        # Bear mode uses a tighter per-run cap (8% vs 20%)
+        if deployed_this_run + qty * price > portfolio_value * run_exposure_cap:
+            logger.warning(
+                "EXPOSURE CAP | %s | bear cap %.0f%% reached",
+                sym, run_exposure_cap * 100,
+            )
+            break
+
         ok, reason = exposure_check(
             sym, qty, price, portfolio_value, deployed_this_run,
         )
@@ -432,6 +486,10 @@ def run():
             sym, score, qty, price, regime, ttype,
         )
         place_order(sym, qty, side="buy")
+        # Hard GTC backstop: catches overnight gaps the soft trail cannot.
+        # Set at entry*0.93 (7% max loss) — wide enough to avoid intraday
+        # noise but caps the gap-down scenarios seen in the loss history.
+        place_protective_stop(sym, qty, round(price * 0.93, 2))
         log_trade(sym, "buy", qty, price,
                   f"signal_entry(score={score},regime={regime}"
                   f",type={ttype})")

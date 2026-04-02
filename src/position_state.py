@@ -124,7 +124,7 @@ def ensure_initialized(
         existing["peak_price"] = current_price
         changed = True
     if "tranches_taken" not in existing:
-        existing["tranches_taken"] = tranches
+        existing["tranches_taken"] = 0
         changed = True
     if not existing.get("entry_date"):
         existing["entry_date"] = date.today().isoformat()
