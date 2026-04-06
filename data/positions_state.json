@@ -1,15 +1,8 @@
 {
-  "PFE": {
-    "peak_price": 28.555,
+  "AMD": {
+    "peak_price": 220.26,
     "tranches_taken": 0,
     "add_tranches_taken": 1,
-    "entry_date": "2026-03-30",
-    "trade_type": "trend"
-  },
-  "AMD": {
-    "peak_price": 215.94,
-    "tranches_taken": 0,
-    "add_tranches_taken": 0,
     "entry_date": "2026-04-01",
     "trade_type": "trend"
   },
