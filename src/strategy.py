@@ -196,6 +196,8 @@ def run():
         # gets a looser stop — the tightening is one-way.
         # Outside trend regime (mean-rev or bear), cap trail at 2% — in a
         # risk-off/war-tariff environment gaps blow past 3% overnight.
+        # Break-even floor: once peak ever hit +2%, stop can never go below
+        # entry price — guarantees a winner never becomes a loser.
         peak_gain_pct = (peak - entry) / entry * 100 if entry > 0 else 0.0
         if peak_gain_pct >= 5.0:
             trail_pct = 0.02  # locked in once profit zone reached
@@ -204,6 +206,8 @@ def run():
         else:
             trail_pct = TRAIL_PCT  # 3% before profit zone
         trail_stop_price = peak * (1 - trail_pct)
+        if peak_gain_pct >= 2.0:
+            trail_stop_price = max(trail_stop_price, entry)  # break-even floor
 
         # Take-profit threshold is the same for all types (5%)
         tp_threshold = TAKE_PROFIT

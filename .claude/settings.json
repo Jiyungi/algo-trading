@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/jiyunkim/.claude/**)",
+      "Bash(defaults read:*)",
+      "Read(//Applications/Claude.app/Contents/**)",
+      "Bash(node -e \":*)",
+      "Read(//Users/jiyunkim/.vscode/extensions/anthropic.claude-code-2.1.88-darwin-arm64/**)",
+      "Bash(~/.vscode/extensions/anthropic.claude-code-2.1.88-darwin-arm64/resources/native-binary/claude plugin:*)",
+      "Bash(CLAUDE=~/.vscode/extensions/anthropic.claude-code-2.1.88-darwin-arm64/resources/native-binary/claude)",
+      "Bash($CLAUDE plugin:*)",
+      "Skill(codex:rescue)",
+      "Skill(codex:rescue:*)",
+      "Bash(node \"/Users/jiyunkim/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs\":*)",
+      "Bash(node \"/Users/jiyunkim/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs\" task --resume-last --write \"Resume our prior analysis thread. The user has provided their prioritized implementation plan and has three specific questions to resolve before shipping.:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
