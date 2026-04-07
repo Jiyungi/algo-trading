@@ -43,3 +43,6 @@ date,symbol,side,qty,price,reason,pnl_pct
 2026-04-02 19:00,CAT,sell,3.0,718.28,trailing_stop,-2.21
 2026-04-06 15:12,AMD,buy,4,220.26,"add_to_winner(score=4,pl=3.7%)",
 2026-04-06 15:12,PFE,sell,108.0,28.11,time_exit(5d),1.32
+2026-04-07 15:57,AMD,sell,13.0,217.20,time_exit(4d),1.08
+2026-04-07 15:57,JPM,sell,11.0,295.32,time_exit(4d),-0.66
+2026-04-07 15:57,MS,sell,23.0,166.97,time_exit(4d),-0.34
