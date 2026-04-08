@@ -104,12 +104,12 @@ SELL_THRESHOLD = -3  # signal exit threshold
 
 # Exit parameters
 TRAIL_PCT = 0.03      # trailing stop: 3% drop from peak sells everything
-TAKE_PROFIT = 5.0     # single tranche: sell 50% at +5%
+TAKE_PROFIT = 3.5     # single tranche: sell 50% at +3.5% (tightened for final week)
 
 # Bear-mode parameters (active when regime == REGIME_BEAR)
 # Only GLD clears the bar: gold is a genuine safe-haven in war/tariff risk-off.
 # TLT fails in stagflation; LMT/RTX carry equity beta in tariff-driven sell-offs.
-BEAR_ALLOWED = {"GLD"}
+BEAR_ALLOWED = {"GLD", "XOM", "COP", "EOG", "CVX"}  # energy proven in tariff risk-off
 BEAR_MIN_SCORE = 4          # highest conviction only
 BEAR_MAX_NEW_POSITIONS = 2  # vs MAX_NEW_POSITIONS=4 normally
 BEAR_EXPOSURE_CAP = 0.08    # 8% per run vs 20% normally
@@ -302,9 +302,8 @@ def run():
                 )
 
                 # ── Priority 6: Add-to-winner (pyramid) ──────────────────
-                # Gated behind circuit_ok so a loss-heavy regime that has
-                # disabled new buys cannot still increase exposure here.
-                if circuit_ok and (
+                # Disabled for final week — both prior add trades lost money.
+                if False and circuit_ok and (
                     pl_pct >= 2.0
                     and days_held <= 3
                     and tranches < 1

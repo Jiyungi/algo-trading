@@ -24,7 +24,7 @@ COOLDOWN_PATH = os.path.join(DATA_DIR, "cooldowns.json")
 
 COOLDOWN_DAYS = 5               # days to block a symbol after stop-loss exit
 CIRCUIT_BREAKER_N = 10          # number of recent closed trades to evaluate
-CIRCUIT_BREAKER_MIN_WIN_RATE = 0.40  # halt new buys below this rate
+CIRCUIT_BREAKER_MIN_WIN_RATE = 0.25  # lowered from 0.40 for final week
 
 FIELDNAMES = ["date", "symbol", "side", "qty", "price", "reason", "pnl_pct"]
 
